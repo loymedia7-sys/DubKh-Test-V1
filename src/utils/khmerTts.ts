@@ -4,6 +4,8 @@
  * Azure Neural km-KH, Fish Audio Clone, Web Speech API, and 48kHz Formant Synthesis.
  */
 
+import type { DubbingSegment } from './dubbingEngine.ts';
+
 export type TtsEngineType = 'cambodia_ai' | 'voxcpm2' | 'azure' | 'fish_audio';
 
 export interface VoxCPM2Config {
@@ -358,6 +360,56 @@ export function encodePcmToWavBuffer(samples: Float32Array, sampleRate: number =
   return buffer;
 }
 
+/**
+ * Trims trailing silence from an AudioBuffer so natural pauses at the end of speech
+ * don't consume unnecessary slot time, while ensuring zero speech is lost.
+ */
+export function trimTrailingSilence(
+  buffer: AudioBuffer,
+  ctx?: AudioContext | null,
+  silenceThreshold: number = 0.012,
+  safetyPaddingSeconds: number = 0.04
+): AudioBuffer {
+  const numChannels = buffer.numberOfChannels;
+  const sampleRate = buffer.sampleRate;
+  const length = buffer.length;
+
+  let lastActiveSample = 0;
+  for (let c = 0; c < numChannels; c++) {
+    const data = buffer.getChannelData(c);
+    for (let i = length - 1; i >= 0; i--) {
+      if (Math.abs(data[i]) > silenceThreshold) {
+        if (i > lastActiveSample) {
+          lastActiveSample = i;
+        }
+        break;
+      }
+    }
+  }
+
+  // If completely silent or speech reaches the very end, return original
+  if (lastActiveSample === 0 || lastActiveSample >= length - Math.floor(0.04 * sampleRate)) {
+    return buffer;
+  }
+
+  const paddingSamples = Math.floor(safetyPaddingSeconds * sampleRate);
+  const trimmedLength = Math.min(length, lastActiveSample + paddingSamples);
+
+  // If trimming saves less than 40ms, keep original
+  if (length - trimmedLength < Math.floor(0.04 * sampleRate)) {
+    return buffer;
+  }
+
+  const audioCtx = ctx || (typeof window !== 'undefined' && (window.AudioContext || (window as any).webkitAudioContext) ? new (window.AudioContext || (window as any).webkitAudioContext)() : null);
+  if (!audioCtx) return buffer;
+
+  const trimmedBuf = audioCtx.createBuffer(numChannels, trimmedLength, sampleRate);
+  for (let c = 0; c < numChannels; c++) {
+    trimmedBuf.getChannelData(c).set(buffer.getChannelData(c).subarray(0, trimmedLength));
+  }
+  return trimmedBuf;
+}
+
 export interface SegmentTtsDebugInfo {
   engine: string;
   isFallback: boolean;
@@ -402,10 +454,14 @@ class AudioSynthesizer {
   private masterSpeed: number = 1.0;
   private rawAudioCache = new Map<string, ArrayBuffer>();
   private decodedAudioCache = new Map<string, AudioBuffer>();
+  private fittedAudioMap = new Map<string, AudioBuffer>();
+  private scheduledTimelineSources: AudioBufferSourceNode[] = [];
+  private timelineGainNode: GainNode | null = null;
   public segmentTtsDebug = new Map<string, SegmentTtsDebugInfo>();
   private statusListeners: Array<() => void> = [];
   private playbackGeneration: number = 0;
   private isCurrentlySpeaking: boolean = false;
+  private isTimelinePlaying: boolean = false;
   private sequenceAborted: boolean = false;
 
   public getDebugInfo(segmentId?: string, cacheKey?: string): SegmentTtsDebugInfo | undefined {
@@ -541,7 +597,9 @@ class AudioSynthesizer {
     }
 
     if (this.decodedAudioCache.has(cacheKey)) {
-      return this.decodedAudioCache.get(cacheKey)!;
+      const cached = this.decodedAudioCache.get(cacheKey)!;
+      (seg as any).ttsDuration = Number(cached.duration.toFixed(2));
+      return cached;
     }
 
     let rawBuf = this.rawAudioCache.get(cacheKey);
@@ -613,12 +671,482 @@ class AudioSynthesizer {
       try {
         const decoded = await ctx.decodeAudioData(rawBuf.slice(0));
         this.decodedAudioCache.set(cacheKey, decoded);
+        (seg as any).ttsDuration = Number(decoded.duration.toFixed(2));
         return decoded;
       } catch (err: any) {
         console.error('[Web Audio Decode Error]', err?.message || err);
       }
     }
     return null;
+  }
+
+  /**
+   * Fetches, decodes, and trims trailing silence for Khmer speech with 3x retry and exponential backoff.
+   * Caches by text + voice + rate.
+   */
+  public async fetchAndDecodeBuffer(
+    text: string,
+    voiceId: string = 'piseth',
+    rateStr: string = '+0%',
+    segId?: string,
+    forceRetry: boolean = false
+  ): Promise<AudioBuffer | null> {
+    const cleanText = (text || '').trim();
+    if (!cleanText) return null;
+    const ctx = this.unlockAudio();
+    const cacheKey = `${voiceId}::${cleanText}::${rateStr}`;
+
+    if (!forceRetry && this.decodedAudioCache.has(cacheKey)) {
+      return this.decodedAudioCache.get(cacheKey)!;
+    }
+
+    const voiceDef = KHMER_VOICES.find(v => v.id === voiceId) || KHMER_VOICES[0];
+    let customRatePercent: number | undefined = undefined;
+    if (rateStr) {
+      const match = rateStr.match(/([+-]?\d+)/);
+      if (match) {
+        customRatePercent = parseInt(match[1], 10);
+      }
+    }
+
+    const url = buildVoxCPM2RequestUrl(
+      cleanText,
+      voiceId,
+      this.activeEngine,
+      { ...this.voxConfig, voiceDesignPrompt: voiceDef.voxcpm2Prompt },
+      undefined,
+      customRatePercent
+    );
+
+    const backoff = [0, 500, 1000, 2000];
+    let rawBuf: ArrayBuffer | null = null;
+    let lastErr: any = null;
+
+    for (let attempt = 0; attempt < backoff.length; attempt++) {
+      if (backoff[attempt] > 0) {
+        await new Promise(r => setTimeout(r, backoff[attempt]));
+      }
+      const t0 = performance.now();
+      try {
+        const res = await ttsConcurrencyLimiter.run(() => fetch(url));
+        const elapsed = Math.round(performance.now() - t0);
+        if (res.ok) {
+          const fetched = await res.arrayBuffer();
+          if (fetched && fetched.byteLength > 100) {
+            rawBuf = fetched;
+            this.rawAudioCache.set(cacheKey, fetched);
+            const engineHdr = res.headers.get('X-TTS-Engine') || 'Microsoft-Edge-Neural';
+            const isFallback = res.headers.get('X-TTS-Fallback') === 'true';
+            this.setDebugInfo(segId, cacheKey, {
+              engine: engineHdr,
+              isFallback,
+              latencyMs: elapsed,
+              failed: false,
+              timestamp: Date.now()
+            });
+            break;
+          }
+        } else {
+          lastErr = new Error(`HTTP ${res.status}`);
+        }
+      } catch (err: any) {
+        lastErr = err;
+      }
+    }
+
+    if (!rawBuf || rawBuf.byteLength < 100) {
+      console.warn(`[TTS Retry Notice] Synthesis retry status: ${lastErr?.message}`);
+      return null;
+    }
+
+    if (ctx) {
+      try {
+        const decoded = await ctx.decodeAudioData(rawBuf.slice(0));
+        const trimmed = trimTrailingSilence(decoded, ctx);
+        this.decodedAudioCache.set(cacheKey, trimmed);
+        return trimmed;
+      } catch (decodeErr: any) {
+        console.error('[Web Audio Decode Error]', decodeErr?.message || decodeErr);
+      }
+    }
+
+    return null;
+  }
+
+  public getFittedAudioBuffer(seg: { id: string; khmerText?: string; speakerVoiceId?: string; speedRatio?: number }): AudioBuffer | null {
+    if (this.fittedAudioMap.has(seg.id)) {
+      return this.fittedAudioMap.get(seg.id)!;
+    }
+    const voiceId = seg.speakerVoiceId || 'piseth';
+    const text = (seg.khmerText || '').trim();
+    if (!text) return null;
+    for (const [key, buf] of this.decodedAudioCache.entries()) {
+      if (key.includes(text) && key.startsWith(voiceId)) {
+        return buf;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Auto-adjusts voice speed per segment so full TTS ends at or before segment.end:
+   * 1. Synthesize at base rate via /api/tts and measure real duration (decode to AudioBuffer).
+   * 2. If duration <= target (slot - 0.1s): use as is.
+   * 3. If duration > target: compute neededSpeed = duration / target. Re-synthesize using Edge TTS rate parameter.
+   *    If still overruns, do one more correction pass.
+   * 4. Speed limits: up to maxSpeed (+60% default 1.6x).
+   *    If still too long: call onTranslateShorten to get shorter line, re-synthesize & re-fit.
+   *    If still too long: apply Web Audio SOLA time-stretch (atempo, max 1.25x more). Mark "too fast" warning.
+   * 5. Trim trailing silence, never truncate, never overlap segments.
+   * 6. Store finalRate, finalDuration, shortened (bool), warning. Cache by text+voice+rate.
+   */
+  public async autoFitSegment(
+    seg: DubbingSegment,
+    options?: {
+      maxSpeed?: number;
+      onTranslateShorten?: (seg: DubbingSegment, targetDuration: number) => Promise<string | null>;
+    }
+  ): Promise<DubbingSegment> {
+    const slot = Math.max(0.3, Number((seg.end - seg.start).toFixed(2)));
+    const target = Math.max(0.2, Number((slot - 0.10).toFixed(2)));
+    const maxSpeed = options?.maxSpeed ?? 1.60;
+    const voiceId = seg.speakerVoiceId || 'piseth';
+    let currentText = (seg.khmerText || '').trim();
+
+    if (!currentText) {
+      return {
+        ...seg,
+        finalRate: 1.0,
+        finalDuration: 0,
+        ttsDuration: 0,
+        shortened: false,
+        warning: null
+      };
+    }
+
+    // 1. Synthesize at base rate
+    let buf = await this.fetchAndDecodeBuffer(currentText, voiceId, '+0%', seg.id);
+    if (!buf) {
+      return {
+        ...seg,
+        finalRate: 1.0,
+        finalDuration: slot,
+        ttsDuration: slot,
+        shortened: false,
+        warning: null
+      };
+    }
+
+    let dur = Number(buf.duration.toFixed(2));
+    let currentSpeed = 1.0;
+    let isShortened = seg.shortened || false;
+    let warning: string | null = null;
+
+    // 2. If duration <= target: use it as is
+    if (dur <= target) {
+      this.fittedAudioMap.set(seg.id, buf);
+      return {
+        ...seg,
+        finalRate: 1.0,
+        finalDuration: dur,
+        ttsDuration: dur,
+        shortened: isShortened,
+        warning: null,
+        speedRatio: 1.0
+      };
+    }
+
+    // 3. duration > target: compute needed speed = duration / target
+    const neededSpeed = dur / target;
+    let chosenSpeed = Math.min(maxSpeed, Math.max(1.0, neededSpeed));
+    let pct = Math.round((chosenSpeed - 1.0) * 100);
+    let rateStr = pct >= 0 ? `+${pct}%` : `${pct}%`;
+
+    let resynthBuf = await this.fetchAndDecodeBuffer(currentText, voiceId, rateStr, seg.id);
+    if (resynthBuf) {
+      buf = resynthBuf;
+      dur = Number(buf.duration.toFixed(2));
+      currentSpeed = chosenSpeed;
+    }
+
+    // If it still overruns, do one more correction pass
+    if (dur > target && currentSpeed < maxSpeed) {
+      const correctionRatio = dur / target;
+      const correctedSpeed = Math.min(maxSpeed, Math.max(1.0, currentSpeed * correctionRatio));
+      const pctCorr = Math.round((correctedSpeed - 1.0) * 100);
+      const rateCorrStr = pctCorr >= 0 ? `+${pctCorr}%` : `${pctCorr}%`;
+      const corrBuf = await this.fetchAndDecodeBuffer(currentText, voiceId, rateCorrStr, seg.id);
+      if (corrBuf) {
+        buf = corrBuf;
+        dur = Number(buf.duration.toFixed(2));
+        currentSpeed = correctedSpeed;
+      }
+    }
+
+    // 4. If still too long at max speed: call /api/translate with maxDuration = target to get a shorter line
+    if (dur > target && options?.onTranslateShorten) {
+      try {
+        const shorter = await options.onTranslateShorten(seg, target);
+        if (shorter && shorter.trim() && shorter.trim() !== currentText) {
+          currentText = shorter.trim();
+          isShortened = true;
+          const shortPct = Math.round((currentSpeed - 1.0) * 100);
+          const shortRateStr = shortPct >= 0 ? `+${shortPct}%` : `${shortPct}%`;
+          const shortBuf = await this.fetchAndDecodeBuffer(currentText, voiceId, shortRateStr, seg.id);
+          if (shortBuf) {
+            buf = shortBuf;
+            dur = Number(buf.duration.toFixed(2));
+          }
+        }
+      } catch (err) {
+        console.warn('[AutoFit Shorten Translation Error]', err);
+      }
+    }
+
+    // If still too long: apply Web Audio SOLA time-stretch (atempo, max 1.25x more)
+    if (dur > target) {
+      const extraNeeded = dur / target;
+      const extraStretch = Math.min(1.25, Math.max(1.0, extraNeeded));
+      if (extraStretch > 1.02) {
+        buf = this.timeStretchAudioBuffer(buf, extraStretch);
+        buf = trimTrailingSilence(buf, this.ctx);
+        dur = Number(buf.duration.toFixed(2));
+        currentSpeed = Number((currentSpeed * extraStretch).toFixed(2));
+        warning = 'too fast';
+      }
+    }
+
+    // Final silence trim to ensure zero speech lost
+    buf = trimTrailingSilence(buf, this.ctx);
+    dur = Number(buf.duration.toFixed(2));
+
+    this.fittedAudioMap.set(seg.id, buf);
+
+    return {
+      ...seg,
+      khmerText: currentText,
+      finalRate: Number(currentSpeed.toFixed(2)),
+      finalDuration: dur,
+      ttsDuration: dur,
+      shortened: isShortened,
+      warning,
+      speedRatio: Number(currentSpeed.toFixed(2))
+    };
+  }
+
+  /**
+   * Auto-fits all segments across the project with a progress counter.
+   */
+  public async autoFitAllSegments(
+    segments: DubbingSegment[],
+    options?: {
+      maxSpeed?: number;
+      onTranslateShorten?: (seg: DubbingSegment, targetDuration: number) => Promise<string | null>;
+      onProgress?: (completed: number, total: number, currentSegId?: string) => void;
+    }
+  ): Promise<DubbingSegment[]> {
+    if (!Array.isArray(segments) || segments.length === 0) return segments;
+    this.unlockAudio();
+
+    const total = segments.length;
+    let completed = 0;
+    const fittedResults: DubbingSegment[] = [];
+
+    for (const seg of segments) {
+      if (options?.onProgress) options.onProgress(completed, total, seg.id);
+      const fitted = await this.autoFitSegment(seg, options);
+      fittedResults.push(fitted);
+      completed++;
+      if (options?.onProgress) options.onProgress(completed, total, seg.id);
+    }
+
+    return fittedResults;
+  }
+
+  /**
+   * Schedules all segments on a single AudioContext timeline starting at segment.start.
+   * Video timing is strictly unchanged — zero pausing, freezing, or delaying!
+   */
+  public scheduleTimelinePlayback(
+    segments: DubbingSegment[],
+    currentVideoTime: number
+  ): void {
+    this.stopTimelinePlayback();
+    const ctx = this.unlockAudio();
+    if (!ctx) return;
+
+    if (!this.timelineGainNode) {
+      this.timelineGainNode = ctx.createGain();
+      this.timelineGainNode.connect(ctx.destination);
+    }
+    this.timelineGainNode.gain.setValueAtTime(Math.min(1.5, Math.max(0.05, this.masterVolume)), ctx.currentTime);
+
+    const now = ctx.currentTime;
+    this.isTimelinePlaying = true;
+
+    for (const seg of segments) {
+      if (!seg.khmerText || !seg.khmerText.trim()) continue;
+      const buf = this.getFittedAudioBuffer(seg);
+      if (!buf) continue;
+
+      const segStart = seg.start;
+      const segDur = seg.finalDuration || seg.ttsDuration || buf.duration;
+
+      if (segStart >= currentVideoTime) {
+        const delay = segStart - currentVideoTime;
+        const source = ctx.createBufferSource();
+        source.buffer = buf;
+        source.connect(this.timelineGainNode);
+        source.start(now + delay, 0);
+        this.scheduledTimelineSources.push(source);
+      } else if (currentVideoTime < segStart + segDur) {
+        const offset = currentVideoTime - segStart;
+        const source = ctx.createBufferSource();
+        source.buffer = buf;
+        source.connect(this.timelineGainNode);
+        source.start(now, offset);
+        this.scheduledTimelineSources.push(source);
+      }
+    }
+  }
+
+  public stopTimelinePlayback(): void {
+    this.isTimelinePlaying = false;
+    for (const src of this.scheduledTimelineSources) {
+      try {
+        src.stop();
+        src.disconnect();
+      } catch {}
+    }
+    this.scheduledTimelineSources = [];
+  }
+
+  public isTimelineActive(): boolean {
+    return this.isTimelinePlaying;
+  }
+
+  /**
+   * Pre-synthesizes all segments using client-side concurrency limiter (max 2 concurrent requests),
+   * decodes each into an AudioBuffer, reads its real duration, and stores it as segment.ttsDuration.
+   */
+  public async preSynthesizeAndMeasureSegments<T extends { id?: string; khmerText: string; speakerVoiceId: string; speedRatio?: number; ttsDuration?: number; naturalDuration?: number }>(
+    segments: T[],
+    defaultSpeed: number = 1.0,
+    onProgress?: (completed: number, total: number) => void
+  ): Promise<T[]> {
+    if (!Array.isArray(segments) || segments.length === 0) return segments;
+    this.unlockAudio();
+
+    let completed = 0;
+    const total = segments.length;
+
+    await Promise.all(
+      segments.map(async seg => {
+        if (!seg.khmerText || !seg.khmerText.trim()) {
+          completed++;
+          if (onProgress) onProgress(completed, total);
+          return;
+        }
+        const audioBuf = await this.getAudioBufferForSegment(seg, defaultSpeed);
+        completed++;
+        if (onProgress) onProgress(completed, total);
+
+        if (audioBuf) {
+          const realDur = Number(audioBuf.duration.toFixed(2));
+          seg.ttsDuration = realDur;
+          console.log(`[TTS Duration Measured] Segment: ${seg.id || 'seg'} | Real Duration: ${realDur}s`);
+        }
+      })
+    );
+
+    return [...segments];
+  }
+
+  /**
+   * Applies pure SOLA pitch-preserving time stretch to an AudioBuffer (tempo 0.5x to 2.0x).
+   * Voice pitch is 100% preserved (zero chipmunk or demon distortion).
+   */
+  public timeStretchAudioBuffer(buffer: AudioBuffer, rate: number): AudioBuffer {
+    const ctx = this.unlockAudio();
+    const clampedRate = Math.min(2.0, Math.max(0.5, Number((rate || 1.0).toFixed(2))));
+    if (Math.abs(clampedRate - 1.0) < 0.02) return buffer;
+
+    const numChannels = buffer.numberOfChannels;
+    const sampleRate = buffer.sampleRate;
+    const stretchedChannels: Float32Array[] = [];
+
+    for (let c = 0; c < numChannels; c++) {
+      const channelData = buffer.getChannelData(c);
+      const stretched = timeStretchPcmSamples(channelData, sampleRate, clampedRate);
+      stretchedChannels.push(stretched);
+    }
+
+    const outBuf = ctx.createBuffer(numChannels, stretchedChannels[0].length, sampleRate);
+    for (let c = 0; c < numChannels; c++) {
+      outBuf.getChannelData(c).set(stretchedChannels[c]);
+    }
+    return outBuf;
+  }
+
+  /**
+   * Plays a segment's decoded AudioBuffer on the single AudioContext timeline without truncation.
+   * If offsetSeconds is > 0, starts playback from that offset into the buffer.
+   * If rate > 1.0 (up to 1.2x), applies pure SOLA pitch-preserving stretch so voice pitch doesn't change.
+   * Connects to gain node and plays until its natural end without cutting off.
+   */
+  public async playSegmentBuffer(
+    seg: { id?: string; khmerText: string; speakerVoiceId: string; speedRatio?: number; playbackRate?: number },
+    offsetSeconds: number = 0,
+    playbackRate: number = 1.0,
+    onEnded?: () => void
+  ): Promise<AudioBufferSourceNode | null> {
+    const text = (seg.khmerText || '').trim();
+    if (!text) {
+      if (onEnded) onEnded();
+      return null;
+    }
+    const ctx = this.unlockAudio();
+    const rawBuf = await this.getAudioBufferForSegment(seg);
+    if (!rawBuf || !ctx) {
+      if (onEnded) onEnded();
+      return null;
+    }
+
+    this.stopCurrentLineOnly();
+
+    const rate = Math.min(1.20, Math.max(0.8, Number((seg.playbackRate || playbackRate || 1.0).toFixed(2))));
+    let playBuffer = rawBuf;
+    if (Math.abs(rate - 1.0) >= 0.03) {
+      playBuffer = this.timeStretchAudioBuffer(rawBuf, rate);
+    }
+
+    const duration = playBuffer.duration;
+    const clampedOffset = Math.max(0, Math.min(duration - 0.05, offsetSeconds));
+
+    const source = ctx.createBufferSource();
+    source.buffer = playBuffer;
+    source.playbackRate.value = 1.0;
+
+    const gainNode = ctx.createGain();
+    gainNode.gain.setValueAtTime(Math.min(1.5, Math.max(0.05, this.masterVolume)), ctx.currentTime);
+
+    source.connect(gainNode);
+    gainNode.connect(ctx.destination);
+
+    this.currentSource = source;
+    this.isCurrentlySpeaking = true;
+
+    const onFinish = () => {
+      if (this.currentSource === source) {
+        this.currentSource = null;
+        this.isCurrentlySpeaking = false;
+      }
+      if (onEnded) onEnded();
+    };
+
+    source.onended = onFinish;
+    source.start(0, clampedOffset);
+    return source;
   }
 
   /**
@@ -937,6 +1465,7 @@ class AudioSynthesizer {
   stop() {
     this.sequenceAborted = true;
     this.stopCurrentLineOnly();
+    this.stopTimelinePlayback();
   }
 }
 

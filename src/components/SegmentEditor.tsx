@@ -7,6 +7,7 @@ import {
   DubbingSegment, 
   TranscriptionMode, 
   SourceLanguage,
+  FitMode,
   VOICE_SPEED_PRESETS,
   clampVoiceSpeed,
   calculateEffectiveSpeechDuration,
@@ -37,6 +38,8 @@ interface SegmentEditorProps {
   onOpenNiceOneDubberModal?: () => void;
   transcriptionSource?: string;
   transcriptionError?: string | null;
+  fitMode?: FitMode;
+  onFitModeChange?: (mode: FitMode) => void;
 }
 
 export const SegmentEditor: React.FC<SegmentEditorProps> = ({
@@ -56,13 +59,20 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
   videoDuration = 30,
   onOpenNiceOneDubberModal,
   transcriptionSource,
-  transcriptionError
+  transcriptionError,
+  fitMode = 'keep_all_speech',
+  onFitModeChange
 }) => {
   const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
   const [filterSpeaker, setFilterSpeaker] = useState<string>('all');
   const [localSpeed, setLocalSpeed] = useState<number>(voiceSpeed || 0.88);
   const [localMode, setLocalMode] = useState<TranscriptionMode>(transcriptionMode);
   const [localLang, setLocalLang] = useState<SourceLanguage>(sourceLang);
+  const [isShorteningId, setIsShorteningId] = useState<string | null>(null);
+  const [isPreMeasuring, setIsPreMeasuring] = useState<boolean>(false);
+  const [maxSpeed, setMaxSpeed] = useState<number>(1.60);
+  const [isAutoFitting, setIsAutoFitting] = useState<boolean>(false);
+  const [autoFitProgress, setAutoFitProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 });
   const [showScriptDrawer, setShowScriptDrawer] = useState<boolean>(false);
   const [customScriptText, setCustomScriptText] = useState<string>('');
   const [speedNotice, setSpeedNotice] = useState<string | null>(null);
@@ -80,13 +90,83 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
   const handleRetrySegmentTts = async (seg: DubbingSegment) => {
     setRetryingId(seg.id);
     try {
-      const lineSpeed = clampVoiceSpeed(seg.speedRatio || effectiveGlobalSpeed || 1.0);
+      const lineSpeed = clampVoiceSpeed(seg.finalRate || seg.speedRatio || effectiveGlobalSpeed || 1.0);
       const buf = await khmerSynthesizer.getAudioBufferForSegment(seg, lineSpeed, true);
       if (buf) {
         await playSegmentAudio(seg);
       }
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  const handleTranslateShorten = async (seg: DubbingSegment, targetDuration: number): Promise<string | null> => {
+    try {
+      const res = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: seg.originalText || seg.khmerText,
+          maxDuration: targetDuration,
+          mode: seg.transcriptionMode || effectiveMode,
+          targetTone: 'cinematic'
+        })
+      });
+      const data = await res.json();
+      return data?.khmerText ? data.khmerText.trim() : null;
+    } catch (e) {
+      console.error('[Translate Shorten Error]', e);
+      return null;
+    }
+  };
+
+  const handleAutoFitAll = async () => {
+    setIsAutoFitting(true);
+    setAutoFitProgress({ completed: 0, total: segments.length });
+    try {
+      const fitted = await khmerSynthesizer.autoFitAllSegments(segments, {
+        maxSpeed,
+        onTranslateShorten: handleTranslateShorten,
+        onProgress: (c, t) => setAutoFitProgress({ completed: c, total: t })
+      });
+      setSegments([...fitted]);
+      setSpeedNotice(`Auto-fitted all ${fitted.length} segments with speed limit ${maxSpeed.toFixed(2)}x!`);
+      setTimeout(() => setSpeedNotice(null), 3000);
+    } catch (err: any) {
+      console.error('Auto-fit failed:', err);
+    } finally {
+      setIsAutoFitting(false);
+    }
+  };
+
+  const handleShortenSegmentToFit = async (seg: DubbingSegment) => {
+    setIsShorteningId(seg.id);
+    try {
+      const fitted = await khmerSynthesizer.autoFitSegment(seg, {
+        maxSpeed,
+        onTranslateShorten: handleTranslateShorten
+      });
+      setSegments(prev => prev.map(s => s.id === seg.id ? fitted : s));
+      setSpeedNotice(`Auto-fitted segment #${seg.id}: ${fitted.finalDuration}s at ${fitted.finalRate}x`);
+      setTimeout(() => setSpeedNotice(null), 3000);
+    } catch (err: any) {
+      console.error('[Shorten Line Error]', err);
+    } finally {
+      setIsShorteningId(null);
+    }
+  };
+
+  const handlePreMeasureAll = async () => {
+    setIsPreMeasuring(true);
+    try {
+      const measured = await khmerSynthesizer.preSynthesizeAndMeasureSegments(segments, effectiveGlobalSpeed);
+      setSegments([...measured]);
+      setSpeedNotice(`Pre-synthesized & measured duration for all ${measured.length} segments!`);
+      setTimeout(() => setSpeedNotice(null), 3000);
+    } catch (e: any) {
+      console.error('Pre-measure failed:', e);
+    } finally {
+      setIsPreMeasuring(false);
     }
   };
 
@@ -436,6 +516,67 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
           )}
         </div>
 
+        {/* Auto-Fit Lip Sync & Slot Timing Control Bar */}
+        <div className="p-3 rounded-xl bg-slate-900/90 border border-amber-500/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <span className="font-bold text-amber-300 uppercase tracking-wider text-[11px] flex items-center gap-1.5 font-mono">
+              <Zap className="w-3.5 h-3.5 text-amber-400" />
+              <span>Voice Auto-Fit:</span>
+            </span>
+
+            {/* Max Speed Slider (1.2x to 2.0x, default 1.6x) */}
+            <div className="flex items-center gap-2 bg-slate-950 px-3 py-1.5 rounded-lg border border-slate-800">
+              <span className="text-[11px] text-slate-300 font-medium">Max Speed:</span>
+              <input
+                type="range"
+                min={1.20}
+                max={2.00}
+                step={0.05}
+                value={maxSpeed}
+                onChange={e => setMaxSpeed(parseFloat(e.target.value))}
+                aria-label="Max speed limit"
+                className="w-24 sm:w-32 accent-amber-400 cursor-pointer"
+              />
+              <span className="font-mono text-xs font-bold text-amber-300 min-w-[54px]">
+                {maxSpeed.toFixed(2)}x (+{Math.round((maxSpeed - 1.0) * 100)}%)
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleAutoFitAll}
+              disabled={isAutoFitting}
+              className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shadow-md shadow-amber-500/20 transition-all cursor-pointer disabled:opacity-50"
+              title="Automatically calculate speed and fit all segments inside their slot before segment.end"
+            >
+              {isAutoFitting ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Auto-Fitting ({autoFitProgress.completed}/{autoFitProgress.total})...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5 fill-current" />
+                  <span>Auto-fit all segments</span>
+                </>
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={handlePreMeasureAll}
+              disabled={isPreMeasuring}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+              title="Pre-synthesize & measure exact TTS duration for every line"
+            >
+              {isPreMeasuring ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Clock className="w-3.5 h-3.5 text-emerald-400" />}
+              <span>{isPreMeasuring ? 'Measuring All...' : 'Measure Durations'}</span>
+            </button>
+          </div>
+        </div>
+
         {/* 2. BETTER TRANSCRIPTION ENGINE TOOLBAR (របៀបបកប្រែ និង សម្រាយរឿង) */}
         <div className="p-3 rounded-xl bg-slate-950/80 border border-slate-800 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -674,6 +815,9 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
             1.0, 
             seg.naturalDuration
           );
+          const measuredTtsDur = Number((seg.ttsDuration || effectiveSpokenDuration).toFixed(2));
+          const isTtsLongerThanSlot = measuredTtsDur > slotDuration;
+          const overrunAmount = Number((measuredTtsDur - slotDuration).toFixed(2));
           const timing = calculateTimeStretch(slotDuration, effectiveSpokenDuration);
           const activeVoice = KHMER_VOICES.find(v => v.id === seg.speakerVoiceId) || KHMER_VOICES[0];
           const isPlayingThis = activePlayingId === seg.id;
@@ -683,7 +827,7 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
             <div 
               key={seg.id}
               className={`p-3.5 rounded-xl border transition-all ${
-                timing.isSevereOverflow
+                isTtsLongerThanSlot
                   ? 'bg-red-950/20 border-red-800/60 shadow-lg shadow-red-950/20'
                   : timing.isOverflow
                   ? 'bg-amber-950/15 border-amber-800/40'
@@ -741,6 +885,7 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
                     </button>
                   </div>
 
+                  {/* Slot Duration */}
                   <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800 font-mono text-[11px] text-slate-400">
                     <Clock className="w-3 h-3 text-slate-500" />
                     <input
@@ -758,34 +903,43 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
                       onChange={e => handleTimeChange(seg.id, 'end', parseFloat(e.target.value) || 0)}
                       className="w-11 bg-transparent text-white text-center focus:outline-none"
                     />
-                    <span>({slotDuration}s)</span>
+                    <span className="text-slate-300 font-bold">Slot: {slotDuration}s</span>
                   </div>
 
-                  {/* Timing sync indicator badge */}
-                  <div className={`px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1 ${
-                    timing.isSevereOverflow
-                      ? 'bg-red-500/20 text-red-400 border border-red-500/40'
-                      : timing.isOverflow
-                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
-                      : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/40'
-                  }`}>
-                    {timing.isSevereOverflow ? (
-                      <>
-                        <AlertTriangle className="w-3 h-3 text-red-400" />
-                        <span>Increase Speed</span>
-                      </>
-                    ) : timing.isOverflow ? (
-                      <>
-                        <AlertTriangle className="w-3 h-3 text-amber-400" />
-                        <span>Tight Fit</span>
-                      </>
-                    ) : (
-                      <>
-                        <CheckCircle className="w-3 h-3 text-emerald-400" />
-                        <span>Optimal ({effectiveSpokenDuration}s)</span>
-                      </>
-                    )}
+                  {/* Real Measured TTS Duration */}
+                  <div className="flex items-center gap-1 bg-slate-900 px-2 py-0.5 rounded-md border border-slate-800 font-mono text-[11px] text-amber-300">
+                    <Volume2 className="w-3 h-3 text-amber-400" />
+                    <span>TTS: {seg.ttsDuration ? `${seg.ttsDuration.toFixed(2)}s` : `${effectiveSpokenDuration.toFixed(2)}s (est)`}</span>
                   </div>
+
+                  {/* Red warning badge if TTS is longer than the slot + Shorten button */}
+                  {isTtsLongerThanSlot ? (
+                    <div className="flex items-center gap-1.5">
+                      <div className="px-2 py-0.5 rounded-md text-[11px] font-bold flex items-center gap-1 bg-red-500/20 text-red-300 border border-red-500/50 shadow-sm shadow-red-500/20">
+                        <AlertTriangle className="w-3 h-3 text-red-400 shrink-0" />
+                        <span>TTS Exceeds Slot (+{overrunAmount.toFixed(1)}s)</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleShortenSegmentToFit(seg)}
+                        disabled={isShorteningId === seg.id}
+                        className="px-2.5 py-0.5 rounded-md text-[11px] font-bold bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 flex items-center gap-1 transition-all shadow-sm shadow-amber-500/20 cursor-pointer"
+                        title="Call /api/translate to shorten this Khmer line so it fits within the slot duration"
+                      >
+                        {isShorteningId === seg.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Wand2 className="w-3 h-3 fill-current" />
+                        )}
+                        <span>Shorten text to fit</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="px-2 py-0.5 rounded-md text-[11px] font-semibold flex items-center gap-1 bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                      <CheckCircle className="w-3 h-3 text-emerald-400" />
+                      <span>Fits Slot ({effectiveSpokenDuration}s)</span>
+                    </div>
+                  )}
                 </div>
               </div>
 

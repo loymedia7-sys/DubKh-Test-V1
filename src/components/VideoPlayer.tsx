@@ -2,14 +2,16 @@ import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { 
   Play, Pause, RotateCcw, Volume2, VolumeX, Maximize2, 
   Smartphone, Monitor, Square, Sliders, Music, Mic, Activity as WaveIcon,
-  UploadCloud, FileVideo, Crosshair, Check, ShieldAlert, Clock, Sparkles
+  UploadCloud, FileVideo, Crosshair, Check, ShieldAlert, Clock, Sparkles, Loader2
 } from 'lucide-react';
 import { 
   DubbingSegment, 
   DuckingConfig, 
   calculateDuckingGain, 
   formatSrtTime,
-  autoAlignTimeframesToSpeech
+  autoAlignTimeframesToSpeech,
+  FitMode,
+  calculateFitSchedule
 } from '../utils/dubbingEngine.ts';
 import { khmerSynthesizer } from '../utils/khmerTts.ts';
 import { 
@@ -53,6 +55,8 @@ interface VideoPlayerProps {
   onRetranscribeVideo?: () => void;
   onDurationDetected?: (dur: number) => void;
   onUpdateSegment?: (id: string, field: keyof DubbingSegment, value: any) => void;
+  fitMode?: FitMode;
+  onFitModeChange?: (mode: FitMode) => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -77,7 +81,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isTranscribing = false,
   onRetranscribeVideo,
   onDurationDetected,
-  onUpdateSegment
+  onUpdateSegment,
+  fitMode = 'keep_all_speech',
+  onFitModeChange
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -91,11 +97,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isLiveSpeaking, setIsLiveSpeaking] = useState(false);
   const [activeSpeakingSegment, setActiveSpeakingSegment] = useState<DubbingSegment | null>(null);
 
+  // Pre-synthesis and Auto-Fit Status (before enabling Play)
+  const [isPreSynthesizing, setIsPreSynthesizing] = useState(false);
+  const [preSynthProgress, setPreSynthProgress] = useState<{ completed: number; total: number }>({ completed: 0, total: 0 });
+  const [isAudioReady, setIsAudioReady] = useState(false);
+
   const lastSpokenSegmentId = useRef<string | null>(null);
   const isPlayingRef = useRef(false);
   isPlayingRef.current = isPlaying;
   const activeVoiceSegmentIdRef = useRef<string | null>(null);
   const isVoiceSpeakingRef = useRef(false);
+  const spokenSegmentIdsRef = useRef<Set<string>>(new Set());
+  const currentPlayingSegmentIdRef = useRef<string | null>(null);
 
   const effectiveDuration = videoDuration && videoDuration > 0 ? videoDuration : 20.0;
 
@@ -197,7 +210,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   }, [currentTime, segments, duckingConfig, videoSrc]);
 
   // Fallback animation loop if no external video file is loaded
-  // Continuous animation loop if no external video file is loaded (does not hold the video)
+  // Video timing is strictly continuous — zero pausing, freezing, or delaying
   useEffect(() => {
     if (videoSrc) return; // Native video element handles timing
 
@@ -211,6 +224,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           const next = prev + delta;
           if (next >= effectiveDuration) {
             setIsPlaying(false);
+            khmerSynthesizer.stopTimelinePlayback();
             return 0;
           }
           return next;
@@ -226,13 +240,16 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => cancelAnimationFrame(animId);
   }, [isPlaying, videoSrc, effectiveDuration]);
 
-  // Frame synchronization loop for uploaded video elements (continuous playback)
+  // Frame synchronization loop for uploaded video elements
   useEffect(() => {
     if (!videoSrc) return;
     let frameId: number;
     const checkSync = () => {
       const video = videoRef.current;
-      if (video && isPlaying && !video.paused) {
+      if (video && isPlaying) {
+        if (video.paused && isPlaying) {
+          video.play().catch(() => {});
+        }
         setCurrentTime(video.currentTime);
       }
       frameId = requestAnimationFrame(checkSync);
@@ -241,58 +258,48 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
     return () => cancelAnimationFrame(frameId);
   }, [isPlaying, videoSrc]);
 
-  // Preload and pre-decode all segment audio for instant 0ms playback matching video timestamps
+  // Pre-synthesize all segments with auto-fit before enabling Play (with progress counter)
   useEffect(() => {
-    khmerSynthesizer.preloadSegments(segments, voiceSpeed);
-  }, [segments, voiceSpeed]);
+    let cancelled = false;
+    setIsAudioReady(false);
+    setIsPreSynthesizing(true);
+    setPreSynthProgress({ completed: 0, total: segments.length });
 
-  // Audio synthesis trigger when scrubber enters a speech segment (plays full script without holding video)
-  useEffect(() => {
-    if (!isPlaying) {
-      khmerSynthesizer.stop();
-      isVoiceSpeakingRef.current = false;
-      activeVoiceSegmentIdRef.current = null;
-      setIsLiveSpeaking(false);
-      setActiveSpeakingSegment(null);
-      return;
-    }
-
-    // Find active segment that has Khmer text
-    const active = segments.find(s => currentTime >= s.start && currentTime <= s.end && !!s.khmerText && s.khmerText.trim().length > 0);
-    
-    if (active && active.id !== lastSpokenSegmentId.current) {
-      lastSpokenSegmentId.current = active.id;
-      activeVoiceSegmentIdRef.current = active.id;
-      isVoiceSpeakingRef.current = true;
-      setIsLiveSpeaking(true);
-      setActiveSpeakingSegment(active);
-
-      // Natural, unhurried voice speed - never play fast too much (clamp to 0.85x - 1.10x)
-      const playSpeed = Math.min(1.10, Math.max(0.85, active.speedRatio || voiceSpeed || 0.88));
-
-      khmerSynthesizer.speak(
-        active.khmerText,
-        active.speakerVoiceId,
-        playSpeed,
-        undefined,
-        false,
-        () => {
-          // This callback fires when the full voice script finishes speaking!
-          if (activeVoiceSegmentIdRef.current === active.id) {
-            isVoiceSpeakingRef.current = false;
-            activeVoiceSegmentIdRef.current = null;
-            setIsLiveSpeaking(false);
-            setActiveSpeakingSegment(null);
-          }
-        }
-      );
-    } else if (!active) {
-      // If voice is no longer speaking and no active segment, reset lastSpoken
-      if (!isVoiceSpeakingRef.current) {
-        lastSpokenSegmentId.current = null;
+    khmerSynthesizer.autoFitAllSegments(segments, {
+      maxSpeed: 1.60,
+      onProgress: (c, t) => {
+        if (!cancelled) setPreSynthProgress({ completed: c, total: t });
       }
+    }).then(() => {
+      if (!cancelled) {
+        setIsPreSynthesizing(false);
+        setIsAudioReady(true);
+      }
+    }).catch(err => {
+      console.warn('Pre-synthesis notice:', err);
+      if (!cancelled) {
+        setIsPreSynthesizing(false);
+        setIsAudioReady(true);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [segments.length, segments.map(s => `${s.id}-${s.khmerText}-${s.speakerVoiceId}-${s.start}-${s.end}`).join(';')]);
+
+  // Single AudioContext timeline playback scheduler: schedules all fitted segments at segment.start.
+  // Video timing is completely unchanged — zero pausing, freezing, or delaying.
+  useEffect(() => {
+    if (isPlaying) {
+      khmerSynthesizer.scheduleTimelinePlayback(segments, currentTime);
+    } else {
+      khmerSynthesizer.stopTimelinePlayback();
     }
-  }, [currentTime, isPlaying, segments, voiceSpeed]);
+    return () => {
+      khmerSynthesizer.stopTimelinePlayback();
+    };
+  }, [isPlaying]);
 
   // Canvas visual rendering for the procedural cinematic scene (when no uploaded video)
   useEffect(() => {
@@ -425,27 +432,20 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const togglePlay = () => {
     khmerSynthesizer.unlockAudio();
     if (!isPlaying) {
-      lastSpokenSegmentId.current = null;
-      isVoiceSpeakingRef.current = false;
-      activeVoiceSegmentIdRef.current = null;
-      setIsLiveSpeaking(false);
-      setActiveSpeakingSegment(null);
-      // If starting at 0.0s before the first segment, jump directly to first cue start so Khmer speech begins right away
+      let startTime = currentTime;
       if (currentTime < 0.2 && segments.length > 0 && segments[0].start > 0.2 && segments[0].start <= 2.0) {
-        const firstStart = segments[0].start;
-        setCurrentTime(firstStart);
+        startTime = segments[0].start;
+        setCurrentTime(startTime);
         if (videoRef.current) {
-          videoRef.current.currentTime = firstStart;
+          videoRef.current.currentTime = startTime;
         }
       }
       setIsPlaying(true);
+      khmerSynthesizer.scheduleTimelinePlayback(segments, startTime);
     } else {
-      khmerSynthesizer.stop();
-      isVoiceSpeakingRef.current = false;
-      activeVoiceSegmentIdRef.current = null;
-      setIsLiveSpeaking(false);
-      setActiveSpeakingSegment(null);
       setIsPlaying(false);
+      khmerSynthesizer.stopTimelinePlayback();
+      khmerSynthesizer.stop();
     }
   };
 
@@ -458,7 +458,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
       videoRef.current.currentTime = targetSeg.start;
     }
     lastSpokenSegmentId.current = targetSeg.id;
-    const playSpeed = targetSeg.speedRatio || voiceSpeed || 1.0;
+    const playSpeed = targetSeg.finalRate || targetSeg.speedRatio || voiceSpeed || 1.0;
     khmerSynthesizer.speak(targetSeg.khmerText, targetSeg.speakerVoiceId, playSpeed);
     setSnapNotice(`Speaking Khmer (${playSpeed.toFixed(2)}x): "${targetSeg.khmerText.slice(0, 28)}..."`);
     setTimeout(() => setSnapNotice(null), 3000);
@@ -466,16 +466,15 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
 
   const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
     khmerSynthesizer.unlockAudio();
+    khmerSynthesizer.stopTimelinePlayback();
     khmerSynthesizer.stop();
-    lastSpokenSegmentId.current = null;
-    isVoiceSpeakingRef.current = false;
-    activeVoiceSegmentIdRef.current = null;
-    setIsLiveSpeaking(false);
-    setActiveSpeakingSegment(null);
     const val = parseFloat(e.target.value);
     setCurrentTime(val);
     if (videoRef.current) {
       videoRef.current.currentTime = val;
+    }
+    if (isPlaying) {
+      khmerSynthesizer.scheduleTimelinePlayback(segments, val);
     }
   };
 
@@ -671,7 +670,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             </div>
           )}
 
-          {/* Live Full Script Speech Active Indicator (Continuous playback without holding video) */}
+          {/* Live Full Script Speech Active Indicator */}
           {isLiveSpeaking && activeSpeakingSegment && (
             <div className="absolute top-12 left-1/2 -translate-x-1/2 z-30 flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-950/90 text-amber-300 font-semibold text-xs backdrop-blur-md shadow-2xl border border-amber-500/40 pointer-events-none whitespace-nowrap animate-pulse">
               <Mic className="w-3.5 h-3.5 text-amber-400 shrink-0 animate-bounce" />
@@ -914,10 +913,24 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="flex items-center gap-2">
             <button
               onClick={togglePlay}
-              className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 flex items-center justify-center font-bold shadow-lg shadow-amber-500/20 transition-all cursor-pointer"
-              title={isPlaying ? 'Pause' : 'Play'}
+              disabled={isPreSynthesizing}
+              className={`h-9 px-3 rounded-xl font-bold flex items-center justify-center gap-1.5 shadow-lg transition-all ${
+                isPreSynthesizing
+                  ? 'bg-slate-800 text-slate-400 border border-slate-700 cursor-not-allowed opacity-80'
+                  : 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-amber-500/20 cursor-pointer'
+              }`}
+              title={isPreSynthesizing ? `Fitting voices (${preSynthProgress.completed}/${preSynthProgress.total})...` : (isPlaying ? 'Pause' : 'Play')}
             >
-              {isPlaying ? <Pause className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current ml-0.5" />}
+              {isPreSynthesizing ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                  <span className="font-mono text-xs">Fitting ({preSynthProgress.completed}/{preSynthProgress.total})</span>
+                </>
+              ) : isPlaying ? (
+                <Pause className="w-4 h-4 fill-current" />
+              ) : (
+                <Play className="w-4 h-4 fill-current ml-0.5" />
+              )}
             </button>
             <button
               onClick={() => {

@@ -17,9 +17,11 @@ import {
   getStageProgress,
   generateSegmentsForUploadedVideo,
   calculateAutoFitTiming,
-  autoAlignTimeframesToSpeech
+  autoAlignTimeframesToSpeech,
+  calculateFitSchedule,
+  generateFfmpegDubbingCommand
 } from './dubbingEngine.ts';
-import type { DubbingSegment } from './dubbingEngine.ts';
+import type { DubbingSegment, FitMode } from './dubbingEngine.ts';
 
 test('parseSrtTime converts SRT timestamp to seconds accurately', () => {
   assert.equal(parseSrtTime('00:00:05,250'), 5.25);
@@ -337,5 +339,117 @@ test('autoAlignTimeframesToSpeech supports fixedSlotDuration 4.3s at 0.88x for a
   // calculateEffectiveSpeechDuration calculates ~4.3s
   const effDur = calculateEffectiveSpeechDuration(aligned.segments[0].khmerText, 0.88, 1.0, aligned.segments[0].naturalDuration);
   assert.equal(Number(effDur.toFixed(1)), 4.3);
+});
+
+test('calculateFitSchedule fits speech when ttsDuration <= slot at rate 1.0 without delay', () => {
+  const segments: DubbingSegment[] = [
+    {
+      id: 'seg-1',
+      start: 2.0,
+      end: 5.0, // 3.0s slot
+      speaker: 'Speaker 1',
+      speakerVoiceId: 'piseth',
+      originalText: 'Hello',
+      khmerText: 'សួស្តី',
+      ttsDuration: 2.1
+    }
+  ];
+
+  const result = calculateFitSchedule(segments, 'keep_all_speech', { logPerSegment: false });
+  assert.equal(result.segments.length, 1);
+  const s0 = result.segments[0];
+  assert.equal(s0.slotDuration, 3.0);
+  assert.equal(s0.ttsDuration, 2.1);
+  assert.equal(s0.playbackRate, 1.0);
+  assert.equal(s0.effectiveStart, 2.0);
+  assert.equal(s0.effectiveDuration, 2.1);
+  assert.equal(s0.delayAdded, 0);
+  assert.equal(s0.isOverSlot, false);
+  assert.equal(s0.needsVideoWait, false);
+});
+
+test('calculateFitSchedule clamps playbackRate to max 1.20 and prevents audio overlap via sequential queue', () => {
+  const segments: DubbingSegment[] = [
+    {
+      id: 'seg-long',
+      start: 1.0,
+      end: 2.0, // 1.0s slot
+      speaker: 'Speaker 1',
+      speakerVoiceId: 'piseth',
+      originalText: 'Very long dialogue here',
+      khmerText: 'យើងត្រូវតែប្រញាប់ប្រញាល់ចេញពីទីនេះ មុនពេលទាហានសត្រូវមកដល់!',
+      ttsDuration: 3.6 // 3.6s audio in a 1.0s slot
+    },
+    {
+      id: 'seg-next',
+      start: 2.2, // would overlap if previous audio wasn't delayed
+      end: 4.0,
+      speaker: 'Speaker 2',
+      speakerVoiceId: 'sreymom',
+      originalText: 'Right behind you',
+      khmerText: 'ខ្ញុំនៅពីក្រោយអ្នក!',
+      ttsDuration: 1.2
+    }
+  ];
+
+  // In keep_video_timing mode:
+  const timingResult = calculateFitSchedule(segments, 'keep_video_timing', { logPerSegment: false });
+  const first = timingResult.segments[0];
+  // rate clamped to max 1.20
+  assert.equal(first.playbackRate, 1.20);
+  // effective duration = 3.6 / 1.2 = 3.0s
+  assert.equal(first.effectiveDuration, 3.0);
+  // effectiveEnd = 1.0 + 3.0 = 4.0s
+  assert.equal(first.effectiveEnd, 4.0);
+  assert.equal(first.isOverSlot, true);
+
+  // second segment must not overlap: nextStart = max(2.2, previousAudioEnd 4.0 + 0.15) = 4.15s
+  const second = timingResult.segments[1];
+  assert.ok(second.effectiveStart >= 4.15, `Next segment start (${second.effectiveStart}) must be >= 4.15 to avoid overlap`);
+  assert.ok(second.delayAdded > 0, 'Second segment must have delay added');
+
+  // In keep_all_speech mode:
+  const waitResult = calculateFitSchedule(segments, 'keep_all_speech', { logPerSegment: false });
+  const waitFirst = waitResult.segments[0];
+  assert.equal(waitFirst.needsVideoWait, true);
+  // waitDuration = effectiveSpeechDur (3.0s) - slot (1.0s) = 2.0s
+  assert.equal(waitFirst.waitDuration, 2.0);
+});
+
+test('generateFfmpegDubbingCommand outputs valid ffmpeg commands with atempo and adelay', () => {
+  const segments: DubbingSegment[] = [
+    {
+      id: 'seg-1',
+      start: 0.5,
+      end: 2.0,
+      speaker: 'Speaker 1',
+      speakerVoiceId: 'piseth',
+      originalText: 'Hello',
+      khmerText: 'សួស្តី',
+      ttsDuration: 1.5
+    },
+    {
+      id: 'seg-2',
+      start: 2.5,
+      end: 3.5,
+      speaker: 'Speaker 2',
+      speakerVoiceId: 'sreymom',
+      originalText: 'Long line text',
+      khmerText: 'ពាក្យនេះវែងណាស់សម្រាប់ឈុតនេះ',
+      ttsDuration: 2.0 // exceeds 1.0s slot -> atempo clamped to 1.20
+    }
+  ];
+
+  // keep_video_timing command
+  const cmdTiming = generateFfmpegDubbingCommand(segments, 'keep_video_timing');
+  assert.ok(cmdTiming.includes('ffmpeg -i input_video.mp4'));
+  assert.ok(cmdTiming.includes('atempo=1.20'));
+  assert.ok(cmdTiming.includes('adelay='));
+  assert.ok(cmdTiming.includes('amix=inputs=2'));
+
+  // keep_all_speech command
+  const cmdWait = generateFfmpegDubbingCommand(segments, 'keep_all_speech');
+  assert.ok(cmdWait.includes('ffmpeg -i input_video.mp4'));
+  assert.ok(cmdWait.includes('tpad freeze-frame'));
 });
 

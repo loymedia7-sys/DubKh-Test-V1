@@ -17,7 +17,7 @@ import { PipelineCodeViewer } from './components/PipelineCodeViewer.tsx';
 import { NiceOneDubberModal } from './components/NiceOneDubberModal.tsx';
 import { 
   DubbingSegment, DuckingConfig, PipelineStage, 
-  TranscriptionMode, SourceLanguage, clampVoiceSpeed, parseScriptOrSrtToSegments,
+  TranscriptionMode, SourceLanguage, FitMode, clampVoiceSpeed, parseScriptOrSrtToSegments,
   sanitizeTranscribedSegments, estimateKhmerDuration, calculateTimeStretch, generateSegmentsForUploadedVideo 
 } from './utils/dubbingEngine.ts';
 import { 
@@ -204,11 +204,12 @@ export default function App() {
   const [voiceSpeed, setVoiceSpeed] = useState<number>(0.88);
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('verbatim');
   const [sourceLang, setSourceLang] = useState<SourceLanguage>('auto');
+  const [fitMode, setFitMode] = useState<FitMode>('keep_all_speech');
 
-  // Preload Khmer speech audio for all active segments so video dubbing playback has zero latency
+  // Pre-synthesize and measure exact TTS audio buffers for all segments (max 2 concurrent)
   useEffect(() => {
-    khmerSynthesizer.preloadSegments(segments);
-  }, [segments]);
+    khmerSynthesizer.preSynthesizeAndMeasureSegments(segments, voiceSpeed).catch(() => {});
+  }, [segments, voiceSpeed]);
 
   // Sync Khmer voice master volume with Audio Dubbing Mixer
   useEffect(() => {
@@ -872,6 +873,8 @@ export default function App() {
                   onDurationDetected={trueDur => {
                     setVideoDuration(trueDur);
                   }}
+                  fitMode={fitMode}
+                  onFitModeChange={setFitMode}
                 />
 
                 {/* Quick Project Creation & Action Bar */}
@@ -971,6 +974,8 @@ export default function App() {
                     onOpenNiceOneDubberModal={() => setShowNiceOneDubberModal(true)}
                     transcriptionSource={transcriptionSource}
                     transcriptionError={transcriptionError}
+                    fitMode={fitMode}
+                    onFitModeChange={setFitMode}
                   />
                 )}
 
@@ -1036,6 +1041,7 @@ export default function App() {
         sceneType={sceneType}
         duckingConfig={duckingConfig}
         voiceSpeed={voiceSpeed}
+        fitMode={fitMode}
       />
 
       <UploadModal

@@ -5,6 +5,7 @@
 
 export type TranscriptionMode = 'recap' | 'character' | 'verbatim';
 export type SourceLanguage = 'auto' | 'en' | 'zh' | 'ko' | 'th' | 'km';
+export type FitMode = 'keep_all_speech' | 'keep_video_timing';
 
 export interface DubbingSegment {
   id: string;
@@ -16,7 +17,16 @@ export interface DubbingSegment {
   khmerText: string;
   emotion?: 'neutral' | 'dramatic' | 'action' | 'whisper' | 'shout';
   audioBlobUrl?: string;
-  naturalDuration?: number;
+  ttsDuration?: number;      // Real measured duration in seconds from decoded AudioBuffer
+  finalRate?: number;        // Final auto-adjusted speed (e.g. 1.0, 1.35)
+  finalDuration?: number;    // Final real measured duration of the fitted AudioBuffer (seconds)
+  shortened?: boolean;       // True if text was shortened via /api/translate
+  warning?: string | null;   // e.g. 'too fast' if speech speed exceeds natural clarity
+  effectiveStart?: number;   // Scheduled playback start time on timeline (in seconds)
+  effectiveEnd?: number;     // Scheduled playback end time on timeline (in seconds)
+  playbackRate?: number;     // Applied tempo speed factor (up to 1.20x max)
+  delayAdded?: number;       // Sequential queue delay in seconds added to prevent overlap
+  isShortened?: boolean;     // Whether text was shortened via /api/translate to fit slot
   speedRatio?: number;
   confidence?: number;
   transcriptionMode?: TranscriptionMode;
@@ -294,6 +304,167 @@ export function autoAlignTimeframesToSpeech(
 
   const totalDuration = aligned.length > 0 ? aligned[aligned.length - 1].end : 0;
   return { segments: aligned, totalDuration };
+}
+
+export interface ScheduledSegment extends DubbingSegment {
+  slotDuration: number;
+  ttsDuration: number;
+  playbackRate: number; // max 1.2
+  effectiveStart: number;
+  effectiveEnd: number;
+  effectiveDuration: number; // ttsDuration / playbackRate
+  delayAdded: number;
+  isOverSlot: boolean;
+  needsVideoWait: boolean; // if keep_all_speech and effectiveEnd > seg.end
+  waitDuration: number;    // seconds video must pause at seg.end
+}
+
+export interface FitScheduleResult {
+  fitMode: FitMode;
+  segments: ScheduledSegment[];
+  totalEffectiveDuration: number;
+  totalDelayAdded: number;
+  overSlotCount: number;
+}
+
+/**
+ * Calculates deterministic fit timing and scheduling per segment without truncation:
+ * 1. slot = segment.end - segment.start
+ * 2. If ttsDuration <= slot: play at segment.start (rate = 1.0)
+ * 3. If ttsDuration > slot: try playbackRate up to 1.20 (preservesPitch)
+ * 4. If still too long: sequential queue delays next segment (nextStart = max(next.start, previousAudioEnd + 0.15s))
+ * 5. Logs per segment: id, slot, ttsDuration, rate used, shortened (yes/no), delay added.
+ */
+export function calculateFitSchedule(
+  segments: DubbingSegment[],
+  fitMode: FitMode = 'keep_all_speech',
+  options?: {
+    maxRate?: number;
+    interSegmentGap?: number;
+    logPerSegment?: boolean;
+  }
+): FitScheduleResult {
+  const maxRate = options?.maxRate ?? 1.20;
+  const interSegmentGap = options?.interSegmentGap ?? 0.15;
+  const shouldLog = options?.logPerSegment ?? true;
+
+  let previousAudioEnd = 0;
+  let totalDelay = 0;
+  let overSlotCount = 0;
+
+  const scheduled: ScheduledSegment[] = segments.map((seg, idx) => {
+    const slot = Math.max(0.2, Number((seg.end - seg.start).toFixed(2)));
+    const ttsDur = Math.max(
+      0.3,
+      Number((seg.ttsDuration || seg.naturalDuration || estimateKhmerDuration(seg.khmerText)).toFixed(2))
+    );
+
+    let rate = 1.0;
+    if (ttsDur > slot) {
+      overSlotCount++;
+      const rateNeeded = ttsDur / slot;
+      rate = Math.min(maxRate, Math.max(1.0, Number(rateNeeded.toFixed(2))));
+    }
+    const effectiveSpeechDur = Number((ttsDur / rate).toFixed(2));
+
+    let scheduledStart = seg.start;
+    if (idx > 0) {
+      const minStart = Number((previousAudioEnd + interSegmentGap).toFixed(2));
+      scheduledStart = Math.max(seg.start, minStart);
+    }
+    const delay = Math.max(0, Number((scheduledStart - seg.start).toFixed(2)));
+    totalDelay += delay;
+
+    const scheduledEnd = Number((scheduledStart + effectiveSpeechDur).toFixed(2));
+    previousAudioEnd = scheduledEnd;
+
+    const isOverSlot = ttsDur > slot;
+    const waitDuration = fitMode === 'keep_all_speech' && effectiveSpeechDur > slot
+      ? Number((effectiveSpeechDur - slot).toFixed(2))
+      : 0;
+    const needsVideoWait = waitDuration > 0;
+
+    const item: ScheduledSegment = {
+      ...seg,
+      slotDuration: slot,
+      ttsDuration: ttsDur,
+      playbackRate: rate,
+      effectiveStart: scheduledStart,
+      effectiveEnd: scheduledEnd,
+      effectiveDuration: effectiveSpeechDur,
+      delayAdded: delay,
+      isOverSlot,
+      needsVideoWait,
+      waitDuration
+    };
+
+    if (shouldLog) {
+      console.log(
+        `[Dubbing Schedule] Segment: ${seg.id} | Slot: ${slot.toFixed(2)}s | TTS: ${ttsDur.toFixed(2)}s | Rate: ${rate.toFixed(2)}x | Shortened: ${seg.isShortened ? 'yes' : 'no'} | Delay: +${delay.toFixed(2)}s`
+      );
+    }
+
+    return item;
+  });
+
+  const totalEffectiveDuration = scheduled.length > 0 ? scheduled[scheduled.length - 1].effectiveEnd : 0;
+
+  return {
+    fitMode,
+    segments: scheduled,
+    totalEffectiveDuration,
+    totalDelayAdded: Number(totalDelay.toFixed(2)),
+    overSlotCount
+  };
+}
+
+/**
+ * Generates an FFmpeg command that places fitted TTS audio clips directly at segment.start
+ * with adelay, mixed with background audio.
+ * Video timing is completely unchanged — zero freezing, pausing, or delaying.
+ */
+export function generateFfmpegDubbingCommand(
+  segments: DubbingSegment[],
+  fitMode: FitMode = 'keep_video_timing',
+  videoFilename = 'input_video.mp4',
+  outputFilename = 'khmer_dubbed_final.mp4'
+): string {
+  const validSegs = segments.filter(s => s.khmerText && s.khmerText.trim().length > 0);
+
+  if (validSegs.length === 0) {
+    return `# No dialogue segments to dub\nffmpeg -i ${videoFilename} -c copy ${outputFilename}`;
+  }
+
+  // Audio filter inputs placed directly at segment.start
+  const audioFilters: string[] = [];
+  const amixInputs: string[] = [];
+
+  validSegs.forEach((seg, idx) => {
+    const inputIdx = idx + 1; // 0 is video
+    const startMs = Math.max(0, Math.round(seg.start * 1000));
+    let chain = `[${inputIdx}:a]`;
+    chain += `adelay=${startMs}|${startMs}[a${idx}]`;
+    audioFilters.push(chain);
+    amixInputs.push(`[a${idx}]`);
+  });
+
+  const audioMixFilter = `${amixInputs.join('')}amix=inputs=${validSegs.length}:normalize=0[dubbed_speech]`;
+
+  const lines = [
+    `# --- FFmpeg Dubbing Command: Video timing unchanged ---`,
+    `# Every Khmer segment is auto-fitted inside its slot [start, end]. Audio placed at segment.start via adelay.`,
+    `ffmpeg -i ${videoFilename} \\`
+  ];
+  validSegs.forEach((s, idx) => {
+    lines.push(`  -i "audio_seg_${idx + 1}.wav" \\`);
+  });
+
+  lines.push(`  -filter_complex "\\`);
+  audioFilters.forEach(f => lines.push(`    ${f}; \\`));
+  lines.push(`    ${audioMixFilter} \\`);
+  lines.push(`  " \\`);
+  lines.push(`  -map 0:v -map "[dubbed_speech]" -c:v copy -c:a aac -b:a 192k ${outputFilename}`);
+  return lines.join('\n');
 }
 
 /**

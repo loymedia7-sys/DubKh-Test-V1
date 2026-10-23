@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   Download, Film, FileText, Music, CheckCircle2, 
-  Loader2, Sparkles, Monitor, Smartphone, X, Play, Pause, AlertCircle
+  Loader2, Sparkles, Monitor, Smartphone, X, Play, Pause, AlertCircle, Terminal, Copy, Check
 } from 'lucide-react';
-import { DubbingSegment, DuckingConfig, generateSrt, generateVtt } from '../utils/dubbingEngine.ts';
+import { DubbingSegment, DuckingConfig, generateSrt, generateVtt, FitMode, calculateFitSchedule, generateFfmpegDubbingCommand } from '../utils/dubbingEngine.ts';
 import { SubtitleStyleConfig } from './VideoPlayer.tsx';
 import { khmerSynthesizer } from '../utils/khmerTts.ts';
 
@@ -19,6 +19,7 @@ interface ExportModalProps {
   sceneType?: string;
   duckingConfig?: DuckingConfig;
   voiceSpeed?: number;
+  fitMode?: FitMode;
 }
 
 export const ExportModal: React.FC<ExportModalProps> = ({
@@ -40,9 +41,10 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     muteOriginalVoice: false,
     originalAudioMode: 'duck_dialogue'
   },
-  voiceSpeed = 1.0
+  voiceSpeed = 1.0,
+  fitMode = 'keep_all_speech'
 }) => {
-  const [exportFormat, setExportFormat] = useState<'burned_mp4' | 'clean_mp4' | 'audio_only' | 'srt_only'>('burned_mp4');
+  const [exportFormat, setExportFormat] = useState<'burned_mp4' | 'clean_mp4' | 'audio_only' | 'srt_only' | 'ffmpeg_cmd'>('burned_mp4');
   const [resolution, setResolution] = useState<'1080p' | '720p'>('720p');
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
@@ -52,6 +54,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
   const [downloadMime, setDownloadMime] = useState<string>('');
   const [exportedFileSize, setExportedFileSize] = useState<string>('');
   const [isPlayingPreview, setIsPlayingPreview] = useState(false);
+  const [copiedFfmpeg, setCopiedFfmpeg] = useState(false);
 
   const abortExportRef = useRef<boolean>(false);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -216,13 +219,19 @@ export const ExportModal: React.FC<ExportModalProps> = ({
       }
 
       // Pre-schedule Khmer voice speech lines into the Audio Destination at their exact timeframe
+      const schedule = calculateFitSchedule(segments, fitMode, { logPerSegment: false });
       let maxAudioFinishTime = videoDuration || 0;
-      for (const seg of segments) {
+      for (const seg of schedule.segments) {
         if (!seg.khmerText || !seg.khmerText.trim()) continue;
         const audioBuf = await khmerSynthesizer.getAudioBufferForSegment(seg, voiceSpeed);
         if (audioBuf) {
+          const rate = seg.playbackRate || 1.0;
+          let playBuf = audioBuf;
+          if (Math.abs(rate - 1.0) >= 0.03) {
+            playBuf = khmerSynthesizer.timeStretchAudioBuffer(audioBuf, rate);
+          }
           const sourceNode = audioCtx.createBufferSource();
-          sourceNode.buffer = audioBuf;
+          sourceNode.buffer = playBuf;
 
           const voiceGain = audioCtx.createGain();
           voiceGain.gain.setValueAtTime(Math.min(1.5, Math.max(0.1, duckingConfig.voiceVolume)), audioCtx.currentTime);
@@ -230,11 +239,11 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           sourceNode.connect(voiceGain);
           voiceGain.connect(dest);
 
-          // Start speech at relative time offset
-          const startTime = Math.max(0, seg.start);
+          // Start speech at relative time offset (effectiveStart)
+          const startTime = Math.max(0, seg.effectiveStart);
           sourceNode.start(audioCtx.currentTime + startTime);
 
-          const finishTime = startTime + audioBuf.duration + 0.35;
+          const finishTime = startTime + playBuf.duration + 0.35;
           if (finishTime > maxAudioFinishTime) {
             maxAudioFinishTime = finishTime;
           }
@@ -549,6 +558,24 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   ទាញយកតែឯកសារ Subtitle ខ្មែរ Unicode សុទ្ធ (.srt, .vtt)
                 </p>
               </button>
+
+              <button
+                type="button"
+                onClick={() => setExportFormat('ffmpeg_cmd')}
+                className={`p-3 rounded-xl border text-left transition-all cursor-pointer sm:col-span-2 ${
+                  exportFormat === 'ffmpeg_cmd'
+                    ? 'bg-amber-500/15 border-amber-500/60 text-white shadow-md ring-1 ring-amber-500/30'
+                    : 'bg-slate-950/70 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className="flex items-center gap-2 font-bold text-xs mb-1">
+                  <Terminal className="w-4 h-4 text-cyan-400" />
+                  <span>FFmpeg CLI Command (Terminal / Production)</span>
+                </div>
+                <p className="text-[11px] text-slate-400 font-kantumruy">
+                  បង្កើតកូដ FFmpeg ស្វ័យប្រវត្តិកំណត់ atempo (max 1.2x), adelay និង freeze-frame tpad
+                </p>
+              </button>
             </div>
           </div>
 
@@ -663,6 +690,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({
                   Export Another
                 </button>
               </div>
+            </div>
+          ) : exportFormat === 'ffmpeg_cmd' ? (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-300 font-mono flex items-center gap-1.5">
+                  <Terminal className="w-4 h-4 text-cyan-400" />
+                  <span>FFmpeg CLI Command ({fitMode})</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const cmd = generateFfmpegDubbingCommand(segments, fitMode, videoSrc ? 'movie.mp4' : 'input.mp4');
+                    navigator.clipboard.writeText(cmd);
+                    setCopiedFfmpeg(true);
+                    setTimeout(() => setCopiedFfmpeg(false), 2000);
+                  }}
+                  className="px-3 py-1 rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-500/40 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-colors"
+                >
+                  {copiedFfmpeg ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                  <span>{copiedFfmpeg ? 'Copied!' : 'Copy FFmpeg Script'}</span>
+                </button>
+              </div>
+              <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-emerald-300 overflow-x-auto max-h-[220px] whitespace-pre leading-relaxed select-all">
+                {generateFfmpegDubbingCommand(segments, fitMode, videoSrc ? 'movie.mp4' : 'input.mp4')}
+              </pre>
+              <p className="text-[11px] text-slate-400 font-kantumruy">
+                {fitMode === 'keep_all_speech'
+                  ? '• របៀប "Keep all speech (video waits)": ប្រើ atempo (max 1.2x) និងពន្យារូបភាពវីដេអូត្រង់ឈុតកាត់ ដើម្បីនិយាយឱ្យចប់ប្រយោគពេញលេញ។'
+                  : '• របៀប "Keep video timing": ប្រើ atempo (max 1.2x) និង adelay តាមលំដាប់លំដោយ មិនជាន់គ្នាឡើយ។'}
+              </p>
             </div>
           ) : (
             <div className="space-y-3 pt-2">

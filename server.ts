@@ -1059,36 +1059,41 @@ app.post('/api/translate', async (req: Request, res: Response) => {
         ? 'Style: Cambodia Movie Recap Narration (សម្រាយរឿងភាពយន្តខ្មែរ, e.g. "នៅក្នុងឈុតនេះ...", "ភ្លាមៗនោះ...").'
         : 'Style: Accurate, natural spoken Cambodian video dialogue (បកប្រែចំៗតាមអត្ថន័យដើមជាភាសានិយាយខ្មែរ).';
 
+      const parsedMaxDur = typeof maxDuration === 'number' && maxDuration > 0 ? Number(maxDuration) : null;
+      const brevityRule = parsedMaxDur
+        ? `CRITICAL DURATION CONSTRAINT: The translated Khmer line MUST be short, punchy, and concise so it can be spoken in under ${parsedMaxDur.toFixed(1)} seconds (maximum ${Math.max(3, Math.floor(parsedMaxDur * 3))} Khmer syllables/words). Strip filler words and condense phrasing while preserving the core emotional intent.`
+        : 'Keep the length natural so it can be spoken comfortably.';
+
       const prompt = `You are a native Cambodian video translator and dubbing specialist (អ្នកបកប្រែ និង បញ្ចូលសំឡេងវីដេអូខ្មែរ).
-Translate the following line accurately into natural spoken Khmer.
+Translate the following line into natural spoken Khmer.
 
 Rules:
 1. ${modeRule}
 2. Tone: ${targetTone}.
-3. Brevity: Keep the length natural so it can be spoken in approximately ${maxDuration ? maxDuration.toFixed(1) + ' seconds' : 'the original time slot'}.
+3. Brevity: ${brevityRule}
 4. Output JSON format only:
 {
-  "khmerText": "the translated Khmer line",
+  "khmerText": "the concise translated Khmer line",
   "suggestedTone": "${targetTone}",
-  "estimatedSyllables": 12,
-  "adaptationNote": "brief note"
+  "estimatedSyllables": 8,
+  "adaptationNote": "condensed for timeframe"
 }
 
 Source line to translate:
 "${text}"`;
 
-      const parsed = await callGeminiJsonWithFallback(prompt, 8000);
+      const parsed = await callGeminiJsonWithFallback(prompt, 25000);
       if (parsed && parsed.khmerText) {
         return res.json({
           success: true,
           khmerText: parsed.khmerText,
           suggestedTone: parsed.suggestedTone || targetTone,
-          adaptationNote: parsed.adaptationNote || 'Gemini 3.8 Khmer Translation',
+          adaptationNote: parsed.adaptationNote || 'Gemini 3.8 Khmer Translation (Shortened)',
           source: 'gemini-3.8'
         });
       }
     } catch (err: any) {
-      console.log('[Translate Engine] Using local Khmer dictionary adapter.');
+      console.error('[Translate Engine] Gemini translation failed, using local adapter:', err?.message || err);
     }
   }
 
