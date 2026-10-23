@@ -1,0 +1,17 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', 'Kantumruy Pro', 'Battambang', 'Siemreap', system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Kantumruy Pro', 'Battambang', monospace;
+}
+
+@layer base {
+  html, body, button, input, select, textarea {
+    font-family: 'Plus Jakarta Sans', 'Kantumruy Pro', 'Battambang', 'Siemreap', system-ui, -apple-system, sans-serif;
+  }
+}
+
+.font-kantumruy {
+  font-family: 'Kantumruy Pro', 'Battambang', 'Siemreap', sans-serif;
+}
+

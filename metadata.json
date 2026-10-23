@@ -1,0 +1,6 @@
+{
+  "name": "KhmerDub AI Studio",
+  "description": "Professional AI Khmer movie & video auto-dubbing studio with vocal separation, smart timing synchronization, natural Khmer voice synthesis, subtitle styler, and pipeline code export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
