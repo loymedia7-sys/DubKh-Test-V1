@@ -303,31 +303,45 @@ export function generateWaveformFromAudioBuffer(audioBuffer: AudioBuffer, points
   return waveform;
 }
 
+export interface AudioChunk {
+  chunkIndex: number;
+  totalChunks: number;
+  chunkStartOffset: number;
+  chunkDuration: number;
+  audioBase64: string;
+}
+
 /**
- * Downsamples an AudioBuffer to high-clarity 16kHz (or 12kHz for long clips) 16-bit mono WAV encoded as base64
- * with stereo center mixing, low-rumble removal, and automatic vocal peak normalization for Gemini 3.5/3.8 ASR.
+ * Encodes an AudioBuffer slice into high-clarity 16kHz 16-bit mono WAV encoded as base64
+ * with stereo center mixing, low-rumble high-pass filtering, and vocal normalization.
  */
-export function encodeAudioBufferToMonoWavBase64(
+export function encodeAudioBufferSliceToMonoWavBase64(
   audioBuffer: AudioBuffer,
-  targetSampleRate = 16000,
-  maxSeconds = 300
+  startSeconds = 0,
+  durationSeconds?: number,
+  targetSampleRate = 16000
 ): string {
   const ch0 = audioBuffer.getChannelData(0);
   const ch1 = audioBuffer.numberOfChannels > 1 ? audioBuffer.getChannelData(1) : null;
   const srcRate = audioBuffer.sampleRate;
-  const effectiveTargetRate = audioBuffer.duration > 90 ? Math.min(targetSampleRate, 12000) : targetSampleRate;
-  const maxSrcSamples = Math.min(ch0.length, Math.floor(srcRate * maxSeconds));
-  const ratio = srcRate / effectiveTargetRate;
-  const numSamples = Math.max(1, Math.floor(maxSrcSamples / ratio));
-  const dataSize = numSamples * 2;
+  const startSample = Math.max(0, Math.floor(startSeconds * srcRate));
+  const maxSrcEnd = durationSeconds !== undefined
+    ? Math.min(ch0.length, Math.floor((startSeconds + durationSeconds) * srcRate))
+    : ch0.length;
+  const numSrcSamples = Math.max(1, maxSrcEnd - startSample);
+
+  const ratio = srcRate / targetSampleRate;
+  const numTargetSamples = Math.max(1, Math.floor(numSrcSamples / ratio));
+  const dataSize = numTargetSamples * 2;
   const buffer = new ArrayBuffer(44 + dataSize);
   const view = new DataView(buffer);
 
-  // Find peak amplitude across mixed channels for vocal normalization
+  // Peak check across slice for normalization
   let maxAbs = 0.01;
-  const stepCheck = Math.max(1, Math.floor(maxSrcSamples / 5000));
-  for (let i = 0; i < maxSrcSamples; i += stepCheck) {
-    const val = ch1 ? ((ch0[i] || 0) + (ch1[i] || 0)) * 0.5 : (ch0[i] || 0);
+  const step = Math.max(1, Math.floor(numSrcSamples / 4000));
+  for (let i = 0; i < numSrcSamples; i += step) {
+    const idx = startSample + i;
+    const val = ch1 ? ((ch0[idx] || 0) + (ch1[idx] || 0)) * 0.5 : (ch0[idx] || 0);
     const abs = Math.abs(val);
     if (abs > maxAbs) maxAbs = abs;
   }
@@ -346,8 +360,8 @@ export function encodeAudioBufferToMonoWavBase64(
   view.setUint32(16, 16, true);
   view.setUint16(20, 1, true); // PCM
   view.setUint16(22, 1, true); // Mono
-  view.setUint32(24, effectiveTargetRate, true);
-  view.setUint32(28, effectiveTargetRate * 2, true);
+  view.setUint32(24, targetSampleRate, true);
+  view.setUint32(28, targetSampleRate * 2, true);
   view.setUint16(32, 2, true);
   view.setUint16(34, 16, true);
   writeStr(36, 'data');
@@ -358,8 +372,8 @@ export function encodeAudioBufferToMonoWavBase64(
   let prevOut = 0;
   const hpAlpha = 0.965;
 
-  for (let i = 0; i < numSamples; i++) {
-    const srcIdx = Math.min(maxSrcSamples - 1, Math.floor(i * ratio));
+  for (let i = 0; i < numTargetSamples; i++) {
+    const srcIdx = Math.min(maxSrcEnd - 1, startSample + Math.floor(i * ratio));
     const rawSample = ch1
       ? ((ch0[srcIdx] || 0) + (ch1[srcIdx] || 0)) * 0.5
       : (ch0[srcIdx] || 0);
@@ -378,6 +392,106 @@ export function encodeAudioBufferToMonoWavBase64(
     binary += String.fromCharCode.apply(null, Array.from(sub));
   }
   return typeof btoa === 'function' ? btoa(binary) : '';
+}
+
+/**
+ * Splits an AudioBuffer into ~45-second chunks, cutting at silence/low-energy valleys where possible.
+ * Send chunks one by one (sequentially) to /api/transcribe with chunkStartOffset.
+ */
+export function splitAudioBufferIntoChunks(
+  audioBuffer: AudioBuffer,
+  targetChunkDuration = 45,
+  targetSampleRate = 16000
+): AudioChunk[] {
+  const totalDuration = audioBuffer.duration;
+  if (!totalDuration || totalDuration <= 0) return [];
+
+  // Short clips (<= 50s): 1 chunk directly
+  if (totalDuration <= 50) {
+    const audioBase64 = encodeAudioBufferSliceToMonoWavBase64(audioBuffer, 0, totalDuration, targetSampleRate);
+    return [
+      {
+        chunkIndex: 0,
+        totalChunks: 1,
+        chunkStartOffset: 0,
+        chunkDuration: Number(totalDuration.toFixed(2)),
+        audioBase64
+      }
+    ];
+  }
+
+  const channel0 = audioBuffer.getChannelData(0);
+  const sampleRate = audioBuffer.sampleRate;
+  const chunks: AudioChunk[] = [];
+  let curStartSec = 0;
+
+  while (curStartSec < totalDuration) {
+    const remainingSec = totalDuration - curStartSec;
+    if (remainingSec <= 50) {
+      // Final remaining chunk
+      const audioBase64 = encodeAudioBufferSliceToMonoWavBase64(audioBuffer, curStartSec, remainingSec, targetSampleRate);
+      chunks.push({
+        chunkIndex: chunks.length,
+        totalChunks: 0,
+        chunkStartOffset: Number(curStartSec.toFixed(2)),
+        chunkDuration: Number(remainingSec.toFixed(2)),
+        audioBase64
+      });
+      break;
+    }
+
+    // Search window between [curStartSec + 38s, curStartSec + 46s] for silence / lowest RMS energy
+    const searchStartSec = curStartSec + 38;
+    const searchEndSec = Math.min(totalDuration - 5, curStartSec + 46);
+    let bestCutSec = curStartSec + targetChunkDuration;
+    let minRms = Infinity;
+
+    const windowSize = Math.floor(sampleRate * 0.05); // 50ms window
+    const hopSize = Math.floor(sampleRate * 0.025);    // 25ms hop
+    const searchStartSample = Math.floor(searchStartSec * sampleRate);
+    const searchEndSample = Math.floor(searchEndSec * sampleRate);
+
+    for (let s = searchStartSample; s + windowSize < searchEndSample && s + windowSize < channel0.length; s += hopSize) {
+      let sumSq = 0;
+      for (let j = 0; j < windowSize; j += 4) {
+        const v = channel0[s + j] || 0;
+        sumSq += v * v;
+      }
+      if (sumSq < minRms) {
+        minRms = sumSq;
+        bestCutSec = Number((s / sampleRate).toFixed(2));
+      }
+    }
+
+    const chunkDur = Number((bestCutSec - curStartSec).toFixed(2));
+    const audioBase64 = encodeAudioBufferSliceToMonoWavBase64(audioBuffer, curStartSec, chunkDur, targetSampleRate);
+    chunks.push({
+      chunkIndex: chunks.length,
+      totalChunks: 0,
+      chunkStartOffset: Number(curStartSec.toFixed(2)),
+      chunkDuration: chunkDur,
+      audioBase64
+    });
+
+    curStartSec = bestCutSec;
+  }
+
+  for (const c of chunks) {
+    c.totalChunks = chunks.length;
+  }
+
+  return chunks;
+}
+
+/**
+ * Downsamples an AudioBuffer to high-clarity 16kHz 16-bit mono WAV encoded as base64.
+ */
+export function encodeAudioBufferToMonoWavBase64(
+  audioBuffer: AudioBuffer,
+  targetSampleRate = 16000,
+  maxSeconds = 300
+): string {
+  return encodeAudioBufferSliceToMonoWavBase64(audioBuffer, 0, maxSeconds, targetSampleRate);
 }
 
 /**
@@ -493,6 +607,7 @@ export async function extractVoicePeaksFromMedia(
   waveform: number[];
   isRealAudio: boolean;
   audioBase64?: string;
+  audioChunks?: AudioChunk[];
   framesBase64?: string[];
   detectedDuration?: number;
   mimeType?: string;
@@ -537,24 +652,26 @@ export async function extractVoicePeaksFromMedia(
             120
           );
 
+          // Split full audio into 45-second chunks, cutting at silence where possible
+          const audioChunks = splitAudioBufferIntoChunks(audioBuffer, 45);
           const audioBase64 = encodeAudioBufferToMonoWavBase64(audioBuffer, 16000, 300);
           const { frames: framesBase64, detectedDuration: vidDur } = await keyframesResultPromise;
           const trueDuration = Number((audioBuffer.duration || vidDur || fallbackDuration).toFixed(2));
           const waveform = generateWaveformFromAudioBuffer(audioBuffer, 72);
-          const fullCount = Math.min(120, Math.max(3, Math.ceil(trueDuration / 3.8)));
-          const finalPeaks = detected.length > 0
-            ? detected
-            : generateSyntheticVoicePeaks(trueDuration, fullCount);
+          
+          // Real media: ONLY use real detected peaks, never synthetic peaks
+          const finalPeaks = detected.length > 0 ? detected : [];
 
           return {
             peaks: finalPeaks,
             waveform,
             isRealAudio: true,
             audioBase64,
+            audioChunks,
             framesBase64,
             detectedDuration: trueDuration,
             mimeType: 'audio/wav',
-            message: `Tracked ${finalPeaks.length} original voice bursts + ${framesBase64.length} keyframes (${trueDuration.toFixed(1)}s)`
+            message: `Tracked ${finalPeaks.length} original voice bursts across ${audioChunks.length} chunks (${trueDuration.toFixed(1)}s)`
           };
         } finally {
           try {
@@ -563,8 +680,8 @@ export async function extractVoicePeaksFromMedia(
         }
       }
     }
-  } catch (err) {
-    console.warn('Voice tracker audio decode notice (using extracted video keyframes + timing envelope):', err);
+  } catch (err: any) {
+    console.error('Voice tracker audio decode error:', err?.message || err, err?.stack);
   }
 
   const { frames: fallbackFrames, detectedDuration } = await keyframesResultPromise;

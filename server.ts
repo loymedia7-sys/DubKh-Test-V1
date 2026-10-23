@@ -240,7 +240,8 @@ async function fetchRealKhmerSpeechMp3(text: string): Promise<Buffer | null> {
     }
 
     return buffers.length > 0 ? Buffer.concat(buffers) : null;
-  } catch (err) {
+  } catch (err: any) {
+    console.error('[Google Translate TTS Error] Fetch failed:', err?.message || err, err?.stack);
     return null;
   }
 }
@@ -339,66 +340,65 @@ function generateFallbackKhmerWav(
 }
 
 // Character Pitch & Rate offsets on top of km-KH-PisethNeural & km-KH-SreymomNeural
-// Derived from Nice One Dubber (02:10–02:35) for movie dubbing:
+// Derived from Nice One Dubber for movie dubbing:
 // "The young/old character profiles are pitch and rate offsets on top of these two."
+// Default rates are tuned to +0% to +10% for crystal-clear spoken Khmer articulation.
 const EDGE_VOICE_CONFIGS: Record<string, { voiceName: string; defaultPitch: string; defaultRate: string; title: string }> = {
-  // 1. Warrior Male (Old Warrior with -8Hz deep pitch & +35% rate for action pacing)
-  piseth: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-8Hz', defaultRate: '+35%', title: 'Piseth (Warrior / Action)' },
-  warrior: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-8Hz', defaultRate: '+35%', title: 'Old Warrior' },
-  // 2. Fierce Female Fighter (+5Hz sharp pitch & +30% rate)
-  sreymom: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+5Hz', defaultRate: '+30%', title: 'Sreymom (Fighter / Drama)' },
-  fighter: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+5Hz', defaultRate: '+30%', title: 'Fierce Fighter' },
+  // 1. Warrior Male (Old Warrior with -4Hz deep pitch & +5% rate for clear delivery)
+  piseth: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-4Hz', defaultRate: '+5%', title: 'Piseth (Warrior / Action)' },
+  warrior: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-4Hz', defaultRate: '+5%', title: 'Old Warrior' },
+  // 2. Fierce Female Fighter (+3Hz sharp pitch & +5% rate)
+  sreymom: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+3Hz', defaultRate: '+5%', title: 'Sreymom (Fighter / Drama)' },
+  fighter: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+3Hz', defaultRate: '+5%', title: 'Fierce Fighter' },
   // 3. Movie Recap Narrator (Signature Cambodian AI recap tone)
-  sovann: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-3Hz', defaultRate: '+20%', title: 'Movie Recap Narrator' },
-  recap: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-3Hz', defaultRate: '+20%', title: 'Movie Recap Narrator' },
+  sovann: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-2Hz', defaultRate: '+5%', title: 'Movie Recap Narrator' },
+  recap: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-2Hz', defaultRate: '+5%', title: 'Movie Recap Narrator' },
   // 4. Drama / Emotional Female
-  apsara: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+15%', title: 'Apsara (Drama / Series)' },
-  // 5. Calm Elder Master / Monk (-6Hz, -5%)
-  borey: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-6Hz', defaultRate: '-5%', title: 'Elder Master / Monk' },
-  elder: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-6Hz', defaultRate: '-5%', title: 'Elder Master' },
-  // 6. Gentle Storyteller / Romantic Heroine (+2Hz, +10%)
-  kolab: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+10%', title: 'Gentle Heroine' },
-  heroine: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+10%', title: 'Gentle Heroine' },
-  // 7. Evil Dark Villain / Warlord (-14Hz, +15%)
-  kiri: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-14Hz', defaultRate: '+15%', title: 'Evil Warlord / General' },
-  villain: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-14Hz', defaultRate: '+15%', title: 'Dark Villain' },
-  // 8. Young Hero / Youthful Protagonist (+4Hz, +25%)
-  dara: { voiceName: 'km-KH-PisethNeural', defaultPitch: '+4Hz', defaultRate: '+25%', title: 'Young Hero / Scout' },
-  young_hero: { voiceName: 'km-KH-PisethNeural', defaultPitch: '+4Hz', defaultRate: '+25%', title: 'Young Hero' },
+  apsara: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+5%', title: 'Apsara (Drama / Series)' },
+  // 5. Calm Elder Master / Monk (-4Hz, +0%)
+  borey: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-4Hz', defaultRate: '+0%', title: 'Elder Master / Monk' },
+  elder: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-4Hz', defaultRate: '+0%', title: 'Elder Master' },
+  // 6. Gentle Storyteller / Romantic Heroine (+2Hz, +5%)
+  kolab: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+5%', title: 'Gentle Heroine' },
+  heroine: { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+2Hz', defaultRate: '+5%', title: 'Gentle Heroine' },
+  // 7. Evil Dark Villain / Warlord (-8Hz, +5%)
+  kiri: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-8Hz', defaultRate: '+5%', title: 'Evil Warlord / General' },
+  villain: { voiceName: 'km-KH-PisethNeural', defaultPitch: '-8Hz', defaultRate: '+5%', title: 'Dark Villain' },
+  // 8. Young Hero / Youthful Protagonist (+3Hz, +8%)
+  dara: { voiceName: 'km-KH-PisethNeural', defaultPitch: '+3Hz', defaultRate: '+8%', title: 'Young Hero / Scout' },
+  young_hero: { voiceName: 'km-KH-PisethNeural', defaultPitch: '+3Hz', defaultRate: '+8%', title: 'Young Hero' },
   // Direct Azure voice identifiers
   'km-KH-PisethNeural': { voiceName: 'km-KH-PisethNeural', defaultPitch: '+0Hz', defaultRate: '+0%', title: 'Piseth Neural' },
   'km-KH-SreymomNeural': { voiceName: 'km-KH-SreymomNeural', defaultPitch: '+0Hz', defaultRate: '+0%', title: 'Sreymom Neural' }
 };
 
-let edgeTtsBlockedUntil = 0;
-
 /**
- * Synthesizes high-fidelity Khmer speech via Microsoft Azure Neural Text-to-Speech (Edge TTS)
- * with character pitch and rate offsets, exactly as implemented in Nice One Dubber.
+ * Single attempt to synthesize Khmer speech via Microsoft Edge TTS with timeout.
  */
-async function synthesizeWithEdgeTTS(
+async function attemptSingleEdgeTTS(
   text: string,
-  voiceName: string = 'km-KH-PisethNeural',
-  rateStr: string = '+0%',
-  pitchStr: string = '+0Hz',
-  timeoutMs: number = 10000
+  voiceName: string,
+  rateStr: string,
+  pitchStr: string,
+  timeoutMs: number
 ): Promise<Buffer | null> {
-  if (Date.now() < edgeTtsBlockedUntil) {
-    return null;
-  }
   let tts: any = null;
   try {
     tts = new MsEdgeTTS();
     await tts.setMetadata(voiceName, OUTPUT_FORMAT.AUDIO_24KHZ_48KBITRATE_MONO_MP3);
     if (tts._ws) {
-      tts._ws.on('error', () => {});
+      tts._ws.on('error', (wsErr: any) => {
+        console.error('[Edge TTS WebSocket Error]', wsErr?.message || wsErr);
+      });
     }
     const streamData = tts.toStream(text, {
       rate: rateStr,
       pitch: pitchStr
     });
     if (tts._ws) {
-      tts._ws.on('error', () => {});
+      tts._ws.on('error', (wsErr: any) => {
+        console.error('[Edge TTS WebSocket Stream Error]', wsErr?.message || wsErr);
+      });
     }
     const chunks: Buffer[] = [];
     return await new Promise<Buffer | null>((resolve) => {
@@ -407,7 +407,9 @@ async function synthesizeWithEdgeTTS(
         if (done) return;
         done = true;
         clearTimeout(timer);
-        try { tts?.close(); } catch {}
+        try { tts?.close(); } catch (closeErr: any) {
+          console.error('[Edge TTS Close Error]', closeErr?.message || closeErr);
+        }
         resolve(result);
       };
 
@@ -421,21 +423,52 @@ async function synthesizeWithEdgeTTS(
         finish(buf.byteLength > 200 ? buf : null);
       });
       streamData.audioStream.on('error', (e: any) => {
-        const msg = String(e?.message || '');
-        if (msg.includes('429')) {
-          edgeTtsBlockedUntil = Date.now() + 10000;
-        }
+        console.error('[Edge TTS AudioStream Error]', e?.message || e);
         finish(null);
       });
     });
   } catch (err: any) {
-    const msg = String(err?.message || '');
-    if (msg.includes('429')) {
-      edgeTtsBlockedUntil = Date.now() + 10000;
+    console.error('[Edge TTS Init Error]', err?.message || err);
+    try { tts?.close(); } catch (closeErr: any) {
+      console.error('[Edge TTS Close Error]', closeErr?.message || closeErr);
     }
-    try { tts?.close(); } catch {}
     return null;
   }
+}
+
+/**
+ * Synthesizes high-fidelity Khmer speech via Microsoft Azure Neural Text-to-Speech (Edge TTS)
+ * with character pitch and rate offsets, retrying up to 3 times with exponential backoff (500ms, 1s, 2s)
+ * and a 20s timeout per attempt before falling back.
+ */
+async function synthesizeWithEdgeTTS(
+  text: string,
+  voiceName: string = 'km-KH-PisethNeural',
+  rateStr: string = '+0%',
+  pitchStr: string = '+0Hz',
+  timeoutMs: number = 20000
+): Promise<Buffer | null> {
+  const backoffDelays = [0, 500, 1000, 2000]; // Initial try + 3 retries with exponential backoff
+
+  for (let attempt = 0; attempt < backoffDelays.length; attempt++) {
+    const delay = backoffDelays[attempt];
+    if (delay > 0) {
+      await new Promise(r => setTimeout(r, delay));
+    }
+    try {
+      const buffer = await attemptSingleEdgeTTS(text, voiceName, rateStr, pitchStr, timeoutMs);
+      if (buffer && buffer.byteLength > 200) {
+        return buffer;
+      }
+      if (attempt < backoffDelays.length - 1) {
+        console.warn(`[Edge TTS Retry] Attempt ${attempt + 1} produced no audio for text (length ${text.length}). Backing off ${backoffDelays[attempt + 1]}ms...`);
+      }
+    } catch (attemptErr: any) {
+      console.error(`[Edge TTS Attempt ${attempt + 1} Exception]`, attemptErr?.message || attemptErr);
+    }
+  }
+
+  return null;
 }
 
 /**
@@ -451,12 +484,12 @@ function safeSetHeader(res: Response, name: string, value: string): void {
     if (clean) {
       res.setHeader(name, clean);
     }
-  } catch {
-    // Non-fatal: Ignore header error to guarantee audio stream is never blocked
+  } catch (err: any) {
+    console.error(`[Header Error] Failed to set header ${name}:`, err?.message || err);
   }
 }
 
-// API: Text-to-Speech (TTS) for Khmer audio synthesis (Microsoft Neural km-KH + VoxCPM2 48kHz)
+// API: Text-to-Speech (TTS) for Khmer audio synthesis (Microsoft Neural km-KH + Real Fallbacks)
 app.get('/api/tts', async (req: Request, res: Response) => {
   try {
     const text = (req.query.text as string) || '';
@@ -464,9 +497,6 @@ app.get('/api/tts', async (req: Request, res: Response) => {
     const engine = (req.query.engine as string) || 'edge';
     const model = (req.query.model as string) || 'km-KH-Neural';
     const sr = parseInt((req.query.sr as string) || '24000', 10) || 24000;
-    const cfg = parseFloat((req.query.cfg as string) || '2.0') || 2.0;
-    const steps = parseInt((req.query.steps as string) || '16', 10) || 16;
-    const lora = parseFloat((req.query.lora as string) || '1.0') || 1.0;
     const rawRate = (req.query.rate as string) || '';
     const rawPitch = (req.query.pitch as string) || '';
 
@@ -474,184 +504,175 @@ app.get('/api/tts', async (req: Request, res: Response) => {
       return res.status(400).send('Text parameter is required');
     }
 
-  const voiceConfig = EDGE_VOICE_CONFIGS[voice] || (
-    voice === 'sreymom' || voice === 'kolab' || voice === 'apsara' || voice.toLowerCase().includes('female')
-      ? EDGE_VOICE_CONFIGS.sreymom
-      : EDGE_VOICE_CONFIGS.piseth
-  );
+    const voiceConfig = EDGE_VOICE_CONFIGS[voice] || (
+      voice === 'sreymom' || voice === 'kolab' || voice === 'apsara' || voice.toLowerCase().includes('female')
+        ? EDGE_VOICE_CONFIGS.sreymom
+        : EDGE_VOICE_CONFIGS.piseth
+    );
 
-  let effectiveRate = voiceConfig.defaultRate;
-  if (rawRate) {
-    if (rawRate.includes('%')) {
-      effectiveRate = rawRate;
-    } else {
-      const numRate = parseFloat(rawRate);
-      if (!isNaN(numRate) && numRate > 0) {
-        const pct = Math.round((numRate - 1.0) * 100);
-        effectiveRate = pct >= 0 ? `+${pct}%` : `${pct}%`;
+    let effectiveRate = voiceConfig.defaultRate;
+    if (rawRate) {
+      if (rawRate.includes('%')) {
+        effectiveRate = rawRate;
+      } else {
+        const numRate = parseFloat(rawRate);
+        if (!isNaN(numRate) && numRate > 0) {
+          const pct = Math.round((numRate - 1.0) * 100);
+          effectiveRate = pct >= 0 ? `+${pct}%` : `${pct}%`;
+        }
       }
     }
-  }
 
-  let effectivePitch = voiceConfig.defaultPitch;
-  if (rawPitch) {
-    if (rawPitch.toLowerCase().includes('hz')) {
-      effectivePitch = rawPitch;
-    } else {
-      const numPitch = parseInt(rawPitch, 10);
-      if (!isNaN(numPitch)) {
-        effectivePitch = numPitch >= 0 ? `+${numPitch}Hz` : `${numPitch}Hz`;
+    let effectivePitch = voiceConfig.defaultPitch;
+    if (rawPitch) {
+      if (rawPitch.toLowerCase().includes('hz')) {
+        effectivePitch = rawPitch;
+      } else {
+        const numPitch = parseInt(rawPitch, 10);
+        if (!isNaN(numPitch)) {
+          effectivePitch = numPitch >= 0 ? `+${numPitch}Hz` : `${numPitch}Hz`;
+        }
       }
     }
-  }
 
-  const cacheKey = `${engine}:${voiceConfig.voiceName}:${effectiveRate}:${effectivePitch}:${text.trim()}`;
-  if (ttsAudioCache.has(cacheKey)) {
-    const cached = ttsAudioCache.get(cacheKey)!;
-    res.setHeader('Content-Type', cached.contentType);
-    safeSetHeader(res, 'X-TTS-Engine', cached.engineTag);
-    safeSetHeader(res, 'X-Sample-Rate', String(sr));
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(cached.buffer);
-  }
+    // Cache key for Edge TTS results ONLY
+    const cacheKey = `${engine}:${voiceConfig.voiceName}:${effectiveRate}:${effectivePitch}:${text.trim()}`;
+    if (ttsAudioCache.has(cacheKey)) {
+      const cached = ttsAudioCache.get(cacheKey)!;
+      res.setHeader('Content-Type', cached.contentType);
+      safeSetHeader(res, 'X-TTS-Engine', cached.engineTag);
+      safeSetHeader(res, 'X-TTS-Fallback', 'false');
+      safeSetHeader(res, 'X-Sample-Rate', String(sr));
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(cached.buffer);
+    }
 
-  // 1. Primary Engine: Microsoft Azure Neural Voices (Edge TTS km-KH-PisethNeural & km-KH-SreymomNeural)
-  // Powers Nice One Dubber & PyVideoTrans with character pitch and rate offsets
-  const edgeBuffer = await synthesizeWithEdgeTTS(
-    text.trim(),
-    voiceConfig.voiceName,
-    effectiveRate,
-    effectivePitch
-  );
+    // 1. Primary Engine: Microsoft Azure Neural Voices (Edge TTS km-KH-PisethNeural & km-KH-SreymomNeural)
+    // Retries up to 3 times with exponential backoff (500ms, 1s, 2s) and 20s timeout
+    const edgeBuffer = await synthesizeWithEdgeTTS(
+      text.trim(),
+      voiceConfig.voiceName,
+      effectiveRate,
+      effectivePitch,
+      20000
+    );
 
-  if (edgeBuffer && edgeBuffer.byteLength > 200) {
-    const engineTag = `Microsoft-Edge-Neural (${voiceConfig.voiceName} - pitch:${effectivePitch} rate:${effectiveRate})`;
-    ttsAudioCache.set(cacheKey, {
-      buffer: edgeBuffer,
-      contentType: 'audio/mpeg',
-      engineTag
-    });
-    res.setHeader('Content-Type', 'audio/mpeg');
-    safeSetHeader(res, 'X-TTS-Engine', engineTag);
-    safeSetHeader(res, 'X-Sample-Rate', '24000');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(edgeBuffer);
-  }
+    if (edgeBuffer && edgeBuffer.byteLength > 200) {
+      const engineTag = `Microsoft-Edge-Neural (${voiceConfig.voiceName} - pitch:${effectivePitch} rate:${effectiveRate})`;
+      // Cache ONLY real Edge TTS results
+      ttsAudioCache.set(cacheKey, {
+        buffer: edgeBuffer,
+        contentType: 'audio/mpeg',
+        engineTag
+      });
+      res.setHeader('Content-Type', 'audio/mpeg');
+      safeSetHeader(res, 'X-TTS-Engine', engineTag);
+      safeSetHeader(res, 'X-TTS-Fallback', 'false');
+      safeSetHeader(res, 'X-Sample-Rate', '24000');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return res.send(edgeBuffer);
+    }
 
-  // 2. Secondary Real Khmer Speech Engine: Native Khmer (km-KH) fallback stream
-  const realKhmerMp3 = await fetchRealKhmerSpeechMp3(text.trim());
-  if (realKhmerMp3 && realKhmerMp3.byteLength > 200) {
-    const engineTag = `Khmer-Speech-Backup (${voiceConfig.voiceName})`;
-    ttsAudioCache.set(cacheKey, {
-      buffer: realKhmerMp3,
-      contentType: 'audio/mpeg',
-      engineTag
-    });
-    res.setHeader('Content-Type', 'audio/mpeg');
-    safeSetHeader(res, 'X-TTS-Engine', engineTag);
-    safeSetHeader(res, 'X-Sample-Rate', String(sr));
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(realKhmerMp3);
-  }
-
-  // 2. Secondary: Try Gemini TTS with @google/genai if available and quota is not blocked
-  const isQuotaBlocked = Date.now() < geminiTtsBlockedUntil;
-  if (ai && !isQuotaBlocked) {
+    // 2. Secondary Real Khmer Speech Engine: Native Khmer (km-KH) fallback stream
+    console.warn(`[TTS Fallback] Engine: Khmer-Speech-Backup, Text len: ${text.length}, Error: Edge TTS failed after 3 retries (20s timeout)`);
     try {
-      const voiceMap: Record<string, string> = {
-        piseth: 'Puck',
-        sreymom: 'Kore',
-        sovann: 'Puck',
-        apsara: 'Aoede',
-        borey: 'Charon',
-        kolab: 'Aoede',
-        kiri: 'Fenrir',
-        dara: 'Zephyr'
-      };
-      const geminiVoice = voiceMap[voice] || 'Puck';
+      const realKhmerMp3 = await fetchRealKhmerSpeechMp3(text.trim());
+      if (realKhmerMp3 && realKhmerMp3.byteLength > 200) {
+        const engineTag = `Khmer-Speech-Backup (${voiceConfig.voiceName})`;
+        // DO NOT write fallback results to ttsAudioCache!
+        res.setHeader('Content-Type', 'audio/mpeg');
+        safeSetHeader(res, 'X-TTS-Engine', engineTag);
+        safeSetHeader(res, 'X-TTS-Fallback', 'true');
+        safeSetHeader(res, 'X-Sample-Rate', String(sr));
+        return res.send(realKhmerMp3);
+      }
+    } catch (backupErr: any) {
+      console.error('[TTS Fallback Error] Khmer-Speech-Backup failed:', backupErr?.message || backupErr);
+    }
 
-      const ttsResponse = await ai.models.generateContent({
-        model: 'gemini-3.8-flash-lite-tts',
-        contents: [
-          {
-            role: 'user',
-            parts: [{ text: `Speak this in Cambodian Khmer: ${text.trim()}` }]
-          }
-        ],
-        config: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: geminiVoice
+    // 3. Tertiary: Try Gemini TTS with @google/genai if available and quota is not blocked
+    const isQuotaBlocked = Date.now() < geminiTtsBlockedUntil;
+    if (ai && !isQuotaBlocked) {
+      console.warn(`[TTS Fallback] Engine: gemini-tts, Text len: ${text.length}, Error: Secondary Khmer-Speech-Backup failed or empty`);
+      try {
+        const voiceMap: Record<string, string> = {
+          piseth: 'Puck',
+          sreymom: 'Kore',
+          sovann: 'Puck',
+          apsara: 'Aoede',
+          borey: 'Charon',
+          kolab: 'Aoede',
+          kiri: 'Fenrir',
+          dara: 'Zephyr'
+        };
+        const geminiVoice = voiceMap[voice] || 'Puck';
+
+        const ttsResponse = await ai.models.generateContent({
+          model: 'gemini-3.8-flash-lite-tts',
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: `Speak this in Cambodian Khmer: ${text.trim()}` }]
+            }
+          ],
+          config: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: geminiVoice
+                }
               }
             }
           }
-        }
-      });
-
-      const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-      if (base64Audio) {
-        const audioBuffer = Buffer.from(base64Audio, 'base64');
-        const engineTag = engine === 'voxcpm2' ? model : 'gemini-tts';
-        ttsAudioCache.set(cacheKey, {
-          buffer: audioBuffer,
-          contentType: 'audio/wav',
-          engineTag
         });
-        res.setHeader('Content-Type', 'audio/wav');
-        safeSetHeader(res, 'X-TTS-Engine', engineTag);
-        safeSetHeader(res, 'X-Sample-Rate', String(sr));
-        res.setHeader('Cache-Control', 'public, max-age=86400');
-        return res.send(audioBuffer);
-      }
-    } catch (gErr: any) {
-      const errMsg = String(gErr?.message || gErr || '');
-      const is429 = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') || gErr?.status === 429;
-      if (is429) {
-        geminiTtsBlockedUntil = Date.now() + 12 * 60 * 60 * 1000;
-      }
-    }
-  }
 
-  // 3. Offline fallback: 48kHz VoxCPM2 acoustic formant synthesizer
-  try {
-    const audioBuffer = generateFallbackKhmerWav(text.trim(), voice, {
-      sampleRate: sr,
-      cfgValue: cfg,
-      loraScale: lora,
-      steps
-    });
-    const engineTag = engine === 'voxcpm2' ? model : engine;
-    ttsAudioCache.set(cacheKey, {
-      buffer: audioBuffer,
-      contentType: 'audio/wav',
-      engineTag
-    });
-    res.setHeader('Content-Type', 'audio/wav');
-    safeSetHeader(res, 'X-TTS-Engine', engineTag);
-    safeSetHeader(res, 'X-Sample-Rate', String(sr));
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(audioBuffer);
-  } catch (err: any) {
-    console.error('TTS generation error:', err);
+        const base64Audio = ttsResponse.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+        if (base64Audio) {
+          const audioBuffer = Buffer.from(base64Audio, 'base64');
+          const engineTag = 'gemini-tts';
+          // DO NOT write fallback results to ttsAudioCache!
+          res.setHeader('Content-Type', 'audio/wav');
+          safeSetHeader(res, 'X-TTS-Engine', engineTag);
+          safeSetHeader(res, 'X-TTS-Fallback', 'true');
+          safeSetHeader(res, 'X-Sample-Rate', String(sr));
+          return res.send(audioBuffer);
+        }
+      } catch (gErr: any) {
+        const errMsg = String(gErr?.message || gErr || '');
+        if (gErr?.status === 404 || errMsg.includes('404') || errMsg.includes('NOT_FOUND')) {
+          console.error('[Gemini Model Error] Model gemini-3.8-flash-lite-tts returned 404 Not Found:', errMsg);
+        } else {
+          console.error('[Gemini TTS Error] Synthesis failed:', errMsg);
+        }
+        const is429 = errMsg.includes('429') || errMsg.includes('quota') || errMsg.includes('RESOURCE_EXHAUSTED') || gErr?.status === 429;
+        if (is429) {
+          geminiTtsBlockedUntil = Date.now() + 12 * 60 * 60 * 1000;
+        }
+      }
+    }
+
+    // 4. All real engines failed: DO NOT use fake sine-wave synthesizer. Return HTTP 503 so UI can display Retry button!
+    console.warn(`[TTS Fallback] Engine: None, Text len: ${text.length}, Error: All real engines exhausted`);
     if (!res.headersSent) {
-      return res.status(500).json({ error: 'TTS audio could not be synthesized' });
+      return res.status(503).json({ 
+        error: 'All real Khmer TTS engines unavailable. Please click Retry to re-synthesize this segment.' 
+      });
+    }
+  } catch (outerErr: any) {
+    console.error('[TTS Fatal Error] /api/tts outer exception:', outerErr?.message || outerErr, outerErr?.stack);
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'TTS request failed' });
     }
   }
-} catch (outerErr: any) {
-  console.error('TTS outer error:', outerErr);
-  if (!res.headersSent) {
-    return res.status(500).json({ error: 'TTS request failed' });
-  }
-}
 });
 
 /**
  * Helper: Calls Gemini 3.8 Flash (with low thinking latency) and automatically falls back
  * to Gemini 3.1 Flash Lite and Gemini Flash Latest if high demand (503) or rate limits occur.
+ * Timeout raised to 60s to accommodate complex audio/video transcription.
  */
-async function callGeminiJsonWithFallback(contents: any, timeoutMs = 14000): Promise<any> {
+async function callGeminiJsonWithFallback(contents: any, timeoutMs = 60000): Promise<any> {
   if (!ai) throw new Error('Gemini AI not initialized');
   const modelsToTry = ['gemini-3.8-flash', 'gemini-3.1-flash-lite', 'gemini-flash-latest'];
   let lastErr: any = null;
@@ -671,7 +692,7 @@ async function callGeminiJsonWithFallback(contents: any, timeoutMs = 14000): Pro
         config
       });
       const timeoutPromise = new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error(`Timeout on ${modelName}`)), timeoutMs)
+        setTimeout(() => reject(new Error(`Timeout after ${timeoutMs}ms on ${modelName}`)), timeoutMs)
       );
       const response = (await Promise.race([callPromise, timeoutPromise])) as any;
       const rawText = response?.text?.trim() || '';
@@ -681,6 +702,12 @@ async function callGeminiJsonWithFallback(contents: any, timeoutMs = 14000): Pro
       }
     } catch (err: any) {
       lastErr = err;
+      const errMsg = String(err?.message || err);
+      if (err?.status === 404 || errMsg.includes('404') || errMsg.includes('NOT_FOUND')) {
+        console.error(`[Gemini Model Error] Model ${modelName} returned 404 Not Found:`, errMsg);
+      } else {
+        console.error(`[Gemini JSON Error] Model ${modelName} failed:`, errMsg);
+      }
     }
   }
   throw lastErr || new Error('All Gemini models failed');
@@ -695,7 +722,7 @@ function detectAudioMimeType(audioBase64: string, fallbackMime = 'audio/wav'): s
 
 /**
  * Helper: Dedicated fast audio transcription via gemini-3.5-transcribe.
- * Extracts raw spoken words from the uploaded video's audio track in ~1.5s.
+ * Timeout raised to 60s for full movie audio chunks.
  */
 async function extractRawSpeechViaGeminiTranscribe(audioBase64: string, mimeType = 'audio/wav'): Promise<string> {
   if (!ai || !audioBase64) return '';
@@ -718,7 +745,7 @@ async function extractRawSpeechViaGeminiTranscribe(audioBase64: string, mimeType
       }
     });
     const timeoutPromise = new Promise<null>((_, reject) =>
-      setTimeout(() => reject(new Error('gemini-3.5-transcribe timeout')), 7000)
+      setTimeout(() => reject(new Error('gemini-3.5-transcribe timeout (60s)')), 60000)
     );
     const response = (await Promise.race([callPromise, timeoutPromise])) as any;
     const parts = response?.candidates?.[0]?.content?.parts || [];
@@ -731,12 +758,18 @@ async function extractRawSpeechViaGeminiTranscribe(audioBase64: string, mimeType
       }
     }
     return transcribedParts.join(' ').trim() || (response?.text?.trim() || '');
-  } catch {
+  } catch (err: any) {
+    const errMsg = String(err?.message || err);
+    if (err?.status === 404 || errMsg.includes('404') || errMsg.includes('NOT_FOUND')) {
+      console.error('[Gemini Model Error] Model gemini-3.5-transcribe returned 404 Not Found:', errMsg);
+    } else {
+      console.error('[Transcribe Error] extractRawSpeechViaGeminiTranscribe failed:', errMsg, err?.stack);
+    }
     return '';
   }
 }
 
-// API: Transcribe FULL movie audio/video + keyframes and adapt dialogue to Khmer with accurate timestamps
+// API: Transcribe movie audio/video chunks + keyframes and adapt dialogue to Khmer with accurate timestamps
 app.post('/api/transcribe', async (req: Request, res: Response) => {
   const { 
     title = 'Movie Clip', 
@@ -750,15 +783,22 @@ app.post('/api/transcribe', async (req: Request, res: Response) => {
     transcriptionMode = 'verbatim',
     sourceLang = 'auto',
     voiceSpeed = 1.0,
-    customScript = ''
+    customScript = '',
+    chunkStartOffset = 0
   } = req.body;
 
+  const offsetSeconds = Math.max(0, Number(chunkStartOffset) || 0);
   const safeDuration = Math.max(2, Number(duration) || 20);
   const mode: TranscriptionMode = (transcriptionMode === 'character' || transcriptionMode === 'verbatim' || transcriptionMode === 'recap')
     ? transcriptionMode
     : 'verbatim';
   const clampedSpeed = clampVoiceSpeed(Number(voiceSpeed) || 1.0);
   const fullMovieCueCount = Math.min(120, Math.max(4, Math.ceil(safeDuration / 3.8)));
+
+  const validFrames = Array.isArray(framesBase64)
+    ? framesBase64.filter((f: any) => typeof f === 'string' && f.length > 100).slice(0, 8)
+    : [];
+  const hasRealMedia = Boolean((typeof audioBase64 === 'string' && audioBase64.length > 200) || validFrames.length > 0);
 
   // 1. If user pasted custom SRT or script text, parse and translate any non-Khmer lines via Gemini
   if (typeof customScript === 'string' && customScript.trim().length > 0) {
@@ -774,7 +814,7 @@ ${JSON.stringify(parsedScriptSegs.map(s => ({ id: s.id, originalText: s.original
 
 Return strictly a JSON array of objects:
 [{ "id": "seg-...", "khmerText": "..." }]`;
-          const translatedArr = await callGeminiJsonWithFallback(translatePrompt, 9000);
+          const translatedArr = await callGeminiJsonWithFallback(translatePrompt, 60000);
           if (Array.isArray(translatedArr)) {
             const mapById = new Map(translatedArr.map((item: any) => [item.id, item.khmerText]));
             parsedScriptSegs = parsedScriptSegs.map((seg, idx) => ({
@@ -783,19 +823,27 @@ Return strictly a JSON array of objects:
               transcriptionMode: mode
             }));
           }
-        } catch {}
+        } catch (scriptErr: any) {
+          console.error('[Transcribe Error] Custom script translation failed:', scriptErr?.message || scriptErr, scriptErr?.stack);
+        }
       }
+      const offsetCustomSegs = parsedScriptSegs.map(s => ({
+        ...s,
+        start: Number((s.start + offsetSeconds).toFixed(2)),
+        end: Number((s.end + offsetSeconds).toFixed(2))
+      }));
       return res.json({
         success: true,
         source: 'custom_script',
         transcriptionMode: mode,
-        matchedVoicePeaksCount: parsedScriptSegs.length,
-        segments: parsedScriptSegs
+        chunkStartOffset: offsetSeconds,
+        matchedVoicePeaksCount: offsetCustomSegs.length,
+        segments: offsetCustomSegs
       });
     }
   }
 
-  // Normalize voice peaks
+  // Normalize voice peaks: For real media, do NOT invent synthetic peaks. Use real detected peaks or empty array.
   const validTrackedPeaks = Array.isArray(trackedPeaks) && trackedPeaks.length > 0
     ? trackedPeaks.map((p: any) => ({
         start: Number(p.start) || 0,
@@ -804,14 +852,10 @@ Return strictly a JSON array of objects:
         peakEnergy: Number(p.peakEnergy) || 0.8,
         confidence: Number(p.confidence) || 0.96
       }))
-    : generateSyntheticVoicePeaks(safeDuration, fullMovieCueCount);
-
-  const validFrames = Array.isArray(framesBase64)
-    ? framesBase64.filter((f: any) => typeof f === 'string' && f.length > 100).slice(0, 8)
-    : [];
-  const hasRealMedia = Boolean((typeof audioBase64 === 'string' && audioBase64.length > 200) || validFrames.length > 0);
+    : (hasRealMedia ? [] : generateSyntheticVoicePeaks(safeDuration, fullMovieCueCount));
 
   // 2. Multimodal ASR + Keyframe Subtitle/Visual Transcription via Gemini 3.5 Transcribe + Gemini 3.8 Flash
+  let lastTranscriptionError: any = null;
   if (ai) {
     let rawAsrText = '';
     try {
@@ -831,16 +875,16 @@ Return strictly a JSON array of objects:
         : 'Auto-detect the spoken language in the audio track and any burned-in subtitles in the video frames (English, Chinese, Korean, Thai, Khmer, etc.).';
 
       const peakTimingHint = validTrackedPeaks.length > 0
-        ? `Detected voice activity intervals in the video (${safeDuration.toFixed(1)}s total duration):\n${validTrackedPeaks.slice(0, 30).map((p, i) => `Cue #${i + 1}: ${p.start.toFixed(2)}s to ${p.end.toFixed(2)}s`).join(', ')}`
-        : `Total video duration: ${safeDuration.toFixed(1)} seconds.`;
+        ? `Detected voice activity intervals in this chunk (${safeDuration.toFixed(1)}s duration):\n${validTrackedPeaks.slice(0, 30).map((p, i) => `Cue #${i + 1}: ${p.start.toFixed(2)}s to ${p.end.toFixed(2)}s`).join(', ')}`
+        : `Total chunk duration: ${safeDuration.toFixed(1)} seconds.`;
 
       const asrContextBlock = rawAsrText
-        ? `\nVERBATIM SPEECH DETECTED BY GEMINI-3.5-TRANSCRIBE FROM VIDEO AUDIO:\n"""\n${rawAsrText}\n"""\nSegment and timestamp every sentence from this exact spoken transcript accurately across the ${safeDuration.toFixed(1)}s video, and combine with any burned-in subtitles visible in the attached video frames!`
+        ? `\nVERBATIM SPEECH DETECTED BY GEMINI-3.5-TRANSCRIBE FROM VIDEO AUDIO:\n"""\n${rawAsrText}\n"""\nSegment and timestamp every sentence from this exact spoken transcript accurately across the ${safeDuration.toFixed(1)}s chunk, and combine with any burned-in subtitles visible in the attached video frames!`
         : '';
 
       const prompt = hasRealMedia
         ? `You are an expert multilingual video speech-to-text transcriber, subtitle OCR reader, and native Cambodian (Khmer) video translator.
-You are analyzing a REAL user video (duration: ${safeDuration.toFixed(1)} seconds, file/title: "${title}").
+You are analyzing a REAL user video chunk (duration: ${safeDuration.toFixed(1)} seconds, file/title: "${title}").
 ${langNotice}
 ${styleInstruction}
 ${peakTimingHint}${asrContextBlock}
@@ -848,7 +892,7 @@ ${peakTimingHint}${asrContextBlock}
 CRITICAL ACCURACY RULES FOR THIS VIDEO:
 1. DO NOT invent fictional stories about temples, fortresses, or warriors! You must ONLY transcribe what is ACTUALLY spoken in the video audio, written in burned-in subtitles on the attached video frames, or visibly happening in the video frames!
 2. Each attached video frame has a yellow timestamp badge "TIME: X.Xs / ${safeDuration.toFixed(1)}s" in the top-left corner. Look at the bottom and center of each frame for any burned-in subtitles or captions, and look at the visual action at that exact timestamp.
-3. Segment the video from beginning (0s) to end (${safeDuration.toFixed(1)}s) with accurate "start" and "end" timestamps in seconds matching when each spoken phrase, subtitle, or scene occurs.
+3. Segment the video chunk from beginning (0s) to end (${safeDuration.toFixed(1)}s) with accurate relative "start" and "end" timestamps in seconds (relative to 0s of this chunk) matching when each spoken phrase, subtitle, or scene occurs.
 4. For every segment:
    - "originalText": The exact transcribed words spoken in the audio (or read from the video's burned-in subtitles). If a portion of the video has no speech/subtitles, write a concise factual description of what is visibly happening in the video frame at that timestamp.
    - "khmerText": Accurate, natural spoken Khmer translation (ភាសានិយាយខ្មែរច្បាស់ៗ ត្រឹមត្រូវតាមអត្ថន័យក្នុងវីដេអូពិតប្រាកដ) so the Cambodian AI voice speaks the exact meaning of the video.
@@ -898,7 +942,7 @@ Return strictly a JSON array of objects with keys: "id", "start", "end", "speake
       parts.push({ text: prompt });
 
       const contents = parts.length > 1 ? { parts } : prompt;
-      const parsed = await callGeminiJsonWithFallback(contents, 15000);
+      const parsed = await callGeminiJsonWithFallback(contents, 60000);
 
       if (Array.isArray(parsed) && parsed.length > 0) {
         const sanitized = sanitizeTranscribedSegments(
@@ -909,18 +953,28 @@ Return strictly a JSON array of objects with keys: "id", "start", "end", "speake
           mode
         );
         if (sanitized.length > 0) {
+          // Add chunkStartOffset to every segment's start and end so timestamps align to the full movie
+          const offsetSegments = sanitized.map(seg => ({
+            ...seg,
+            start: Number((seg.start + offsetSeconds).toFixed(2)),
+            end: Number((seg.end + offsetSeconds).toFixed(2))
+          }));
+
           return res.json({
             success: true,
             source: hasRealMedia ? 'gemini-3.8-multimodal-asr' : 'gemini-3.8-ai',
+            chunkStartOffset: offsetSeconds,
             rawAsrTranscript: rawAsrText || undefined,
             transcriptionMode: mode,
-            matchedVoicePeaksCount: sanitized.length,
-            segments: sanitized
+            matchedVoicePeaksCount: offsetSegments.length,
+            segments: offsetSegments
           });
         }
       }
     } catch (err: any) {
-      console.warn('[Transcribe Engine] Gemini multimodal notice:', String(err?.message || err).slice(0, 160));
+      lastTranscriptionError = err;
+      console.error('[Transcribe Error] Gemini multimodal transcription failed:', err?.message || err, err?.stack);
+
       // If gemini-3.5-transcribe succeeded with rawAsrText even if JSON formatting timed out, convert rawAsrText into real segments!
       if (rawAsrText && rawAsrText.trim().length > 0) {
         const sentences = rawAsrText
@@ -934,20 +988,38 @@ Return strictly a JSON array of objects with keys: "id", "start", "end", "speake
           clampedSpeed
         );
         if (asrSegments.length > 0) {
+          const offsetAsrSegments = asrSegments.map(seg => ({
+            ...seg,
+            start: Number((seg.start + offsetSeconds).toFixed(2)),
+            end: Number((seg.end + offsetSeconds).toFixed(2))
+          }));
+
           return res.json({
             success: true,
             source: 'gemini-3.5-transcribe',
+            chunkStartOffset: offsetSeconds,
             rawAsrTranscript: rawAsrText,
             transcriptionMode: mode,
-            matchedVoicePeaksCount: asrSegments.length,
-            segments: asrSegments
+            matchedVoicePeaksCount: offsetAsrSegments.length,
+            segments: offsetAsrSegments
           });
         }
       }
     }
   }
 
-  // Fallback only if no real media could be transcribed by AI
+  // Never return fake local_engine segments for a real uploaded video!
+  if (hasRealMedia) {
+    const errorMsg = lastTranscriptionError?.message || 'Speech recognition failed for this video chunk';
+    console.error('[Transcribe Error] Real media transcription failed, returning 500 error to client:', errorMsg);
+    return res.status(500).json({
+      success: false,
+      error: errorMsg,
+      chunkStartOffset: offsetSeconds
+    });
+  }
+
+  // Fallback ONLY for empty/template projects with no uploaded video or audio
   const fallbackSegments = generateSegmentsForUploadedVideo(
     safeDuration,
     genre,
@@ -958,12 +1030,15 @@ Return strictly a JSON array of objects with keys: "id", "start", "end", "speake
   );
   const matchedFallback = alignSegmentsToVoicePeaks(fallbackSegments, validTrackedPeaks, safeDuration).map(s => ({
     ...s,
+    start: Number((s.start + offsetSeconds).toFixed(2)),
+    end: Number((s.end + offsetSeconds).toFixed(2)),
     speedRatio: clampedSpeed,
     transcriptionMode: mode
   }));
   return res.json({
     success: true,
     source: 'local_engine',
+    chunkStartOffset: offsetSeconds,
     transcriptionMode: mode,
     matchedVoicePeaksCount: matchedFallback.length,
     segments: matchedFallback

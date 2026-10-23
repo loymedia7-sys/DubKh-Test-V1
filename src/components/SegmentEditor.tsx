@@ -35,6 +35,8 @@ interface SegmentEditorProps {
   onSourceLangChange?: (lang: SourceLanguage) => void;
   videoDuration?: number;
   onOpenNiceOneDubberModal?: () => void;
+  transcriptionSource?: string;
+  transcriptionError?: string | null;
 }
 
 export const SegmentEditor: React.FC<SegmentEditorProps> = ({
@@ -52,7 +54,9 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
   sourceLang = 'auto',
   onSourceLangChange,
   videoDuration = 30,
-  onOpenNiceOneDubberModal
+  onOpenNiceOneDubberModal,
+  transcriptionSource,
+  transcriptionError
 }) => {
   const [activePlayingId, setActivePlayingId] = useState<string | null>(null);
   const [filterSpeaker, setFilterSpeaker] = useState<string>('all');
@@ -63,6 +67,28 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
   const [customScriptText, setCustomScriptText] = useState<string>('');
   const [speedNotice, setSpeedNotice] = useState<string | null>(null);
   const [speedUpToFitLimit, setSpeedUpToFitLimit] = useState<number>(1.10);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [, setTick] = useState(0);
+
+  // Subscribe to per-segment TTS debug status updates (engine, latency, errors)
+  React.useEffect(() => {
+    return khmerSynthesizer.subscribeDebug(() => {
+      setTick(t => t + 1);
+    });
+  }, []);
+
+  const handleRetrySegmentTts = async (seg: DubbingSegment) => {
+    setRetryingId(seg.id);
+    try {
+      const lineSpeed = clampVoiceSpeed(seg.speedRatio || effectiveGlobalSpeed || 1.0);
+      const buf = await khmerSynthesizer.getAudioBufferForSegment(seg, lineSpeed, true);
+      if (buf) {
+        await playSegmentAudio(seg);
+      }
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   const autoFitMetrics = useMemo(() => {
     return calculateAutoFitTiming(segments, speedUpToFitLimit);
@@ -608,11 +634,38 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
             <span>Add Line</span>
           </button>
         </div>
+
+        {/* ASR Source Badge and Transcription Error Status */}
+        {transcriptionSource && (
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-slate-900/90 border border-slate-800 text-xs">
+            <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            <span className="text-slate-400">ASR Source:</span>
+            <span className="font-mono font-semibold text-amber-300">{transcriptionSource}</span>
+          </div>
+        )}
+
+        {transcriptionError && (
+          <div className="w-full flex items-center justify-between p-2.5 rounded-xl bg-red-950/40 border border-red-500/50 text-xs text-red-300">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{transcriptionError}</span>
+            </div>
+            {onReTranscribe && (
+              <button
+                onClick={() => onReTranscribe(effectiveMode, effectiveLang, effectiveGlobalSpeed)}
+                className="px-2.5 py-1 rounded-lg bg-red-800 hover:bg-red-700 text-white font-bold text-xs cursor-pointer"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Segments List */}
       <div className="space-y-3 max-h-[580px] overflow-y-auto pr-1">
         {filtered.map((seg, idx) => {
+          const debugInfo = khmerSynthesizer.getDebugInfo(seg.id);
           const slotDuration = Number((seg.end - seg.start).toFixed(2));
           const lineSpeed = clampVoiceSpeed(seg.speedRatio || effectiveGlobalSpeed || 1.0);
           const effectiveSpokenDuration = calculateEffectiveSpeechDuration(
@@ -811,10 +864,38 @@ export const SegmentEditor: React.FC<SegmentEditorProps> = ({
 
               {/* Action Toolbar for this line */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-850 text-xs">
-                <div className="text-[11px] text-slate-400 flex items-center gap-1.5">
+                <div className="text-[11px] text-slate-400 flex flex-wrap items-center gap-2">
                   <span className="text-slate-500 font-kantumruy">
                     សំឡេង: {activeVoice.nameKhmer} • ល្បឿន {lineSpeed.toFixed(2)}x
                   </span>
+                  {debugInfo && (
+                    <div className="flex items-center gap-1.5 font-mono text-[10px]">
+                      {debugInfo.failed ? (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-red-950/70 border border-red-500/40 text-red-300">
+                          <AlertTriangle className="w-3 h-3 text-red-400" />
+                          <span>TTS Failed ({debugInfo.error || '503'})</span>
+                          <button
+                            type="button"
+                            onClick={() => handleRetrySegmentTts(seg)}
+                            disabled={retryingId === seg.id}
+                            className="ml-1 px-1.5 py-0.2 rounded bg-red-800 hover:bg-red-700 text-white font-bold cursor-pointer transition-colors"
+                          >
+                            {retryingId === seg.id ? 'Retrying...' : 'Retry'}
+                          </button>
+                        </span>
+                      ) : debugInfo.isFallback ? (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-950/60 border border-amber-500/40 text-amber-300" title="Fallback voice engine was used">
+                          <AlertTriangle className="w-3 h-3 text-amber-400" />
+                          <span>Fallback: {debugInfo.engine.replace('Microsoft-Edge-Neural', 'Edge')} ({debugInfo.latencyMs}ms)</span>
+                        </span>
+                      ) : (
+                        <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400" title="Synthesized via Microsoft Azure Neural">
+                          <Zap className="w-2.5 h-2.5 text-emerald-400" />
+                          <span>{debugInfo.engine.startsWith('Microsoft') ? 'Edge Neural' : debugInfo.engine} ({debugInfo.latencyMs}ms)</span>
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex items-center gap-2">

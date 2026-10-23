@@ -25,7 +25,8 @@ import {
   alignSegmentsToVoicePeaks,
   extractVoicePeaksFromMedia,
   generateWaveformProfile,
-  VoicePeak 
+  VoicePeak,
+  AudioChunk
 } from './utils/voiceTracker.ts';
 import { khmerSynthesizer } from './utils/khmerTts.ts';
 import { 
@@ -196,6 +197,9 @@ export default function App() {
   const [waveformPoints, setWaveformPoints] = useState<number[]>(() => generateWaveformProfile(generateSyntheticVoicePeaks(20.0, 4), 20.0, 72));
   const [isRealAudioTracked, setIsRealAudioTracked] = useState<boolean>(false);
   const [trackedAudioBase64, setTrackedAudioBase64] = useState<string | undefined>(undefined);
+  const [trackedAudioChunks, setTrackedAudioChunks] = useState<AudioChunk[]>([]);
+  const [transcriptionSource, setTranscriptionSource] = useState<string>('sample_template');
+  const [transcriptionError, setTranscriptionError] = useState<string | null>(null);
   const [trackedFramesBase64, setTrackedFramesBase64] = useState<string[] | undefined>(undefined);
   const [voiceSpeed, setVoiceSpeed] = useState<number>(0.88);
   const [transcriptionMode, setTranscriptionMode] = useState<TranscriptionMode>('verbatim');
@@ -276,7 +280,7 @@ export default function App() {
     }
   };
 
-  // Full AI Speech Transcription & Khmer Adaptation caller with Voice Peak Tracking, Keyframes & Voice Speed
+  // Full AI Speech Transcription & Khmer Adaptation caller with 45s audio chunking, Voice Peak Tracking, Keyframes & Voice Speed
   const handleTranscribeProject = async (
     overrideDuration?: number, 
     overrideTitle?: string, 
@@ -288,9 +292,11 @@ export default function App() {
     overrideLang?: SourceLanguage,
     overrideSpeed?: number,
     customScript?: string,
-    overrideFramesBase64?: string[]
+    overrideFramesBase64?: string[],
+    overrideAudioChunks?: AudioChunk[]
   ) => {
     setIsTranscribing(true);
+    setTranscriptionError(null);
     const dur = overrideDuration || videoDuration || 20;
     if (dur !== videoDuration) {
       setVideoDuration(dur);
@@ -315,13 +321,22 @@ export default function App() {
       ? overridePeaks
       : (trackedVoicePeaks && trackedVoicePeaks.length > 0)
       ? trackedVoicePeaks
-      : generateSyntheticVoicePeaks(dur, fullTargetCues);
+      : (uploadedVideoSrc ? [] : generateSyntheticVoicePeaks(dur, fullTargetCues));
     setTrackedVoicePeaks(peaksToUse);
     setWaveformPoints(generateWaveformProfile(peaksToUse, dur, 72));
     const audioPayload = overrideAudioBase64 !== undefined ? overrideAudioBase64 : trackedAudioBase64;
     const framesPayload = overrideFramesBase64 !== undefined ? overrideFramesBase64 : trackedFramesBase64;
+    const chunksToSend: AudioChunk[] = (overrideAudioChunks && overrideAudioChunks.length > 0)
+      ? overrideAudioChunks
+      : (trackedAudioChunks && trackedAudioChunks.length > 0)
+      ? trackedAudioChunks
+      : audioPayload && audioPayload.length > 200
+      ? [{ chunkIndex: 0, totalChunks: 1, chunkStartOffset: 0, chunkDuration: dur, audioBase64: audioPayload }]
+      : [];
+
     const hasRealMedia = Boolean(
       uploadedVideoSrc ||
+      chunksToSend.length > 0 ||
       (audioPayload && audioPayload.length > 200) ||
       (framesPayload && framesPayload.length > 0)
     );
@@ -342,57 +357,143 @@ export default function App() {
         transcriptionMode: activeMode
       }));
       setSegments(instantAligned);
+      setTranscriptionSource('local_engine');
     }
 
     setPipelineLogs(p => [
       ...p, 
-      `[Voice Tracker] Tracking full video speech bursts (${peaksToUse.length} cues across ${dur.toFixed(1)}s, mode: ${activeMode.toUpperCase()}, speed: ${activeSpeed.toFixed(2)}x)...`,
+      `[Voice Tracker] Speech tracked across ${dur.toFixed(1)}s (mode: ${activeMode.toUpperCase()}, speed: ${activeSpeed.toFixed(2)}x)...`,
       hasRealMedia
-        ? `[Gemini 3.8 Multimodal ASR] Transcribing 16kHz normalized vocal audio + ${framesPayload?.length || 0} timestamped 640x360 keyframes...`
-        : `[Smart Transcribe Pro] Transcribing full video (${peaksToUse.length} lines) in ${activeMode === 'recap' ? 'Cambodia Movie Recap (សម្រាយរឿង)' : activeMode} style...`
+        ? `[Gemini 3.8 Multimodal ASR] Transcribing ${chunksToSend.length > 1 ? `${chunksToSend.length} sequential 45s chunks` : 'vocal audio track'} + ${framesPayload?.length || 0} keyframes...`
+        : `[Smart Transcribe Pro] Transcribing video in ${activeMode === 'recap' ? 'Cambodia Movie Recap (សម្រាយរឿង)' : activeMode} style...`
     ]);
 
     try {
-      const res = await fetch('/api/transcribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          title: ttl,
-          genre: gnr,
-          duration: dur,
-          leadVoiceId: leadV,
-          trackedPeaks: peaksToUse,
-          audioBase64: audioPayload,
-          framesBase64: framesPayload,
-          mimeType: audioPayload ? 'audio/wav' : undefined,
-          transcriptionMode: activeMode,
-          sourceLang: activeLang,
-          voiceSpeed: activeSpeed,
-          customScript
-        })
-      });
+      // If no audio chunks (e.g. custom script pasted or template mode)
+      if (chunksToSend.length === 0) {
+        const res = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: ttl,
+            genre: gnr,
+            duration: dur,
+            leadVoiceId: leadV,
+            trackedPeaks: peaksToUse,
+            audioBase64: audioPayload,
+            framesBase64: framesPayload,
+            mimeType: audioPayload ? 'audio/wav' : undefined,
+            transcriptionMode: activeMode,
+            sourceLang: activeLang,
+            voiceSpeed: activeSpeed,
+            customScript,
+            chunkStartOffset: 0
+          })
+        });
 
-      const data = await res.json();
-      if (data.success && Array.isArray(data.segments) && data.segments.length > 0) {
-        // Preserve actual transcribed timestamps and text from Gemini without overwriting with synthetic peaks
-        const sanitized = sanitizeTranscribedSegments(
-          data.segments,
-          dur,
-          leadV,
-          activeSpeed,
-          activeMode
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          const errMessage = errData.error || `Transcription failed with status ${res.status}`;
+          console.error('[Transcribe Error]', errMessage);
+          setTranscriptionError(errMessage);
+          return;
+        }
+
+        const data = await res.json();
+        if (data.source) {
+          setTranscriptionSource(data.source);
+        }
+        if (data.success && Array.isArray(data.segments) && data.segments.length > 0) {
+          const sanitized = sanitizeTranscribedSegments(
+            data.segments,
+            dur,
+            leadV,
+            activeSpeed,
+            activeMode
+          );
+          if (sanitized.length > 0) {
+            setSegments(sanitized);
+            setPipelineLogs(p => [
+              ...p,
+              `[${data.source || 'Gemini 3.8 ASR'}] Video transcribed accurately: ${sanitized.length} lines (${activeSpeed.toFixed(2)}x voice speed)!`
+            ]);
+          }
+        }
+        return;
+      }
+
+      // Sequential chunking: send 45s chunks one by one
+      const aggregatedSegments: DubbingSegment[] = [];
+
+      for (let i = 0; i < chunksToSend.length; i++) {
+        const chunk = chunksToSend[i];
+        const isFirstChunk = i === 0;
+        setPipelineLogs(p => [
+          ...p,
+          `[Transcribe Queue] Sending chunk ${i + 1}/${chunksToSend.length} (${chunk.chunkStartOffset.toFixed(1)}s - ${(chunk.chunkStartOffset + chunk.chunkDuration).toFixed(1)}s)...`
+        ]);
+
+        const chunkPeaks = peaksToUse.filter(
+          p => p.start >= chunk.chunkStartOffset && p.end <= (chunk.chunkStartOffset + chunk.chunkDuration + 0.5)
         );
 
-        if (sanitized.length > 0) {
-          setSegments(sanitized);
+        const res = await fetch('/api/transcribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: `${ttl} (Part ${i + 1})`,
+            genre: gnr,
+            duration: chunk.chunkDuration,
+            leadVoiceId: leadV,
+            trackedPeaks: chunkPeaks,
+            audioBase64: chunk.audioBase64,
+            framesBase64: isFirstChunk ? framesPayload : [],
+            mimeType: 'audio/wav',
+            transcriptionMode: activeMode,
+            sourceLang: activeLang,
+            voiceSpeed: activeSpeed,
+            chunkStartOffset: chunk.chunkStartOffset
+          })
+        });
+
+        if (!res.ok) {
+          const errData = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+          const errMessage = errData.error || `Chunk ${i + 1}/${chunksToSend.length} transcription failed (${res.status})`;
+          console.error(`[Transcribe Chunk ${i + 1} Error]:`, errMessage);
+          setTranscriptionError(errMessage);
           setPipelineLogs(p => [
             ...p,
-            `[${data.source || 'Gemini 3.8 ASR'}] Video transcribed accurately: ${sanitized.length} timestamped lines (${activeSpeed.toFixed(2)}x voice speed)!`
+            `[Transcribe Error] Chunk ${i + 1}/${chunksToSend.length} failed: ${errMessage}`
+          ]);
+          if (hasRealMedia) {
+            break;
+          }
+        }
+
+        const data = await res.json();
+        if (data.source) {
+          setTranscriptionSource(data.source);
+        }
+
+        if (data.success && Array.isArray(data.segments) && data.segments.length > 0) {
+          aggregatedSegments.push(...data.segments);
+          const sanitizedSoFar = sanitizeTranscribedSegments(
+            aggregatedSegments,
+            dur,
+            leadV,
+            activeSpeed,
+            activeMode
+          );
+          setSegments(sanitizedSoFar);
+          setPipelineLogs(p => [
+            ...p,
+            `[${data.source || 'Gemini 3.8 ASR'}] Chunk ${i + 1}/${chunksToSend.length} transcribed (+${data.segments.length} lines)!`
           ]);
         }
       }
-    } catch (err) {
-      console.warn('Transcribe request notice:', err);
+    } catch (err: any) {
+      console.error('[Transcribe Error] Network or server error:', err?.message || err, err?.stack);
+      setTranscriptionError(err?.message || 'Transcription request failed');
     } finally {
       setIsTranscribing(false);
     }
@@ -403,12 +504,17 @@ export default function App() {
     let peaks = trackedVoicePeaks;
     let audioB64 = trackedAudioBase64;
     let framesB64 = trackedFramesBase64;
+    let chunks = trackedAudioChunks;
     let activeDur = videoDuration;
     if (uploadedVideoSrc) {
       const result = await extractVoicePeaksFromMedia(uploadedVideoSrc, videoDuration);
       peaks = result.peaks;
       audioB64 = result.audioBase64;
       framesB64 = result.framesBase64;
+      if (result.audioChunks && result.audioChunks.length > 0) {
+        chunks = result.audioChunks;
+        setTrackedAudioChunks(result.audioChunks);
+      }
       if (result.detectedDuration && result.detectedDuration > 0.5) {
         activeDur = result.detectedDuration;
         setVideoDuration(activeDur);
@@ -419,7 +525,7 @@ export default function App() {
       setTrackedAudioBase64(result.audioBase64);
       setTrackedFramesBase64(result.framesBase64);
     }
-    if (audioB64 || (framesB64 && framesB64.length > 0)) {
+    if (audioB64 || (framesB64 && framesB64.length > 0) || chunks.length > 0) {
       await handleTranscribeProject(
         activeDur,
         projectTitle,
@@ -431,7 +537,8 @@ export default function App() {
         sourceLang,
         voiceSpeed,
         undefined,
-        framesB64
+        framesB64,
+        chunks
       );
       return;
     }
@@ -487,6 +594,9 @@ export default function App() {
     setWaveformPoints(trackResult.waveform);
     setIsRealAudioTracked(trackResult.isRealAudio);
     setTrackedAudioBase64(trackResult.audioBase64);
+    if (trackResult.audioChunks && trackResult.audioChunks.length > 0) {
+      setTrackedAudioChunks(trackResult.audioChunks);
+    }
     setTrackedFramesBase64(trackResult.framesBase64);
 
     if (!mediaSource && data.customSegments && data.customSegments.length > 0) {
@@ -515,7 +625,8 @@ export default function App() {
       sourceLang,
       voiceSpeed,
       undefined,
-      trackResult.framesBase64
+      trackResult.framesBase64,
+      trackResult.audioChunks
     );
 
     setPipelineStage('user_editing');
@@ -563,6 +674,9 @@ export default function App() {
       setWaveformPoints(trackResult.waveform);
       setIsRealAudioTracked(trackResult.isRealAudio);
       setTrackedAudioBase64(trackResult.audioBase64);
+      if (trackResult.audioChunks && trackResult.audioChunks.length > 0) {
+        setTrackedAudioChunks(trackResult.audioChunks);
+      }
       setTrackedFramesBase64(trackResult.framesBase64);
 
       setPipelineStage('user_editing');
@@ -571,7 +685,7 @@ export default function App() {
         `[Direct Upload] Video loaded: "${file.name}" (${(file.size / (1024 * 1024)).toFixed(1)} MB, ${trueDur.toFixed(1)}s).`,
         `[Voice Tracker] ${trackResult.message}.`
       ]);
-      // Trigger accurate multimodal AI transcription with both audioBase64 and framesBase64
+      // Trigger accurate multimodal AI transcription with chunks
       await handleTranscribeProject(
         trueDur,
         cleanName,
@@ -583,7 +697,8 @@ export default function App() {
         sourceLang,
         voiceSpeed,
         undefined,
-        trackResult.framesBase64
+        trackResult.framesBase64,
+        trackResult.audioChunks
       );
     };
 
@@ -854,6 +969,8 @@ export default function App() {
                     onSourceLangChange={setSourceLang}
                     videoDuration={videoDuration}
                     onOpenNiceOneDubberModal={() => setShowNiceOneDubberModal(true)}
+                    transcriptionSource={transcriptionSource}
+                    transcriptionError={transcriptionError}
                   />
                 )}
 

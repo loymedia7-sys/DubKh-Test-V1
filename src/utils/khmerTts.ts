@@ -53,17 +53,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Piseth (ពិសិដ្ឋ) • Old Warrior / Hero',
     nameKhmer: 'ពិសិដ្ឋ',
     gender: 'male',
-    style: 'Older / Deep Male Warrior (-8Hz, +35%)',
+    style: 'Old Warrior / Hero (-4Hz, +5%)',
     azureVoiceName: 'km-KH-PisethNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-PisethNeural',
-    voxcpm2Prompt: 'Deep authoritative Cambodian male warrior with fast action pacing (-8Hz, +35%)',
-    description: 'Deep commanding warrior tone with action pacing as tuned in Nice One Dubber (02:10–02:35) using km-KH-PisethNeural.',
+    voxcpm2Prompt: 'Deep authoritative Cambodian male warrior with clear action pacing (-4Hz, +5%)',
+    description: 'Deep commanding warrior tone with clear articulation tuned using km-KH-PisethNeural (-4Hz, +5%).',
     sampleAudioText: 'ថ្ងៃនេះអញនឹងធ្វើឲ្យឯងស្លាប់មិនសល់សាកសព!',
-    pitch: 0.94,
-    rate: 1.35,
-    pitchOffsetHz: -8,
-    rateOffsetPercent: 35,
-    characterArchetype: 'Older / Deep Male Warrior (-8Hz, +35%)',
+    pitch: 0.96,
+    rate: 1.05,
+    pitchOffsetHz: -4,
+    rateOffsetPercent: 5,
+    characterArchetype: 'Old Warrior / Hero (-4Hz, +5%)',
     avatarColor: 'from-amber-600 to-red-600'
   },
   {
@@ -71,17 +71,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Sreymom (ស្រីមុំ) • Fierce Fighter',
     nameKhmer: 'ស្រីមុំ',
     gender: 'female',
-    style: 'Fast / Fierce Female Fighter (+5Hz, +30%)',
+    style: 'Fierce Fighter (+3Hz, +5%)',
     azureVoiceName: 'km-KH-SreymomNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-SreymomNeural',
-    voxcpm2Prompt: 'Sharp, agile Cambodian female martial arts fighter (+5Hz, +30%)',
-    description: 'Fast, fierce female fighter voice tuned in Nice One Dubber (04:00) using km-KH-SreymomNeural with raised pitch and rapid action tempo.',
+    voxcpm2Prompt: 'Sharp, agile Cambodian female martial arts fighter (+3Hz, +5%)',
+    description: 'Crisp, fierce female fighter voice tuned using km-KH-SreymomNeural (+3Hz, +5%) for clear dialogue.',
     sampleAudioText: 'ទទួលមួយកណ្ដាប់ដៃឯង?',
-    pitch: 1.05,
-    rate: 1.30,
-    pitchOffsetHz: 5,
-    rateOffsetPercent: 30,
-    characterArchetype: 'Fast / Fierce Female Fighter (+5Hz, +30%)',
+    pitch: 1.03,
+    rate: 1.05,
+    pitchOffsetHz: 3,
+    rateOffsetPercent: 5,
+    characterArchetype: 'Fierce Fighter (+3Hz, +5%)',
     avatarColor: 'from-rose-500 to-pink-600'
   },
   {
@@ -89,17 +89,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Sovann (សុវណ្ណ) • Movie Recap AI',
     nameKhmer: 'សុវណ្ណ',
     gender: 'male',
-    style: 'Cambodia Movie Recap Narrator (-3Hz, +20%)',
+    style: 'Movie Recap Narrator (-2Hz, +5%)',
     azureVoiceName: 'km-KH-PisethNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-PisethNeural',
-    voxcpm2Prompt: 'Signature Cambodian movie recap narrator with steady engaging rhythm (-3Hz, +20%)',
-    description: 'The signature Cambodian AI movie recap narrator (សំឡេង AI សម្រាយរឿង) with conversational tone and crisp articulation.',
+    voxcpm2Prompt: 'Signature Cambodian movie recap narrator with steady engaging rhythm (-2Hz, +5%)',
+    description: 'The signature Cambodian AI movie recap narrator (សំឡេង AI សម្រាយរឿង) with steady cadence and crisp articulation.',
     sampleAudioText: 'នៅក្នុងឈុតឆាកនេះ តួឯករបស់យើងក៏បានរកឃើញអាថ៌កំបាំងដែលលាក់ទុកជាង១០ឆ្នាំ។',
     pitch: 0.98,
-    rate: 1.20,
-    pitchOffsetHz: -3,
-    rateOffsetPercent: 20,
-    characterArchetype: 'Movie Recap Narrator (-3Hz, +20%)',
+    rate: 1.05,
+    pitchOffsetHz: -2,
+    rateOffsetPercent: 5,
+    characterArchetype: 'Movie Recap Narrator (-2Hz, +5%)',
     avatarColor: 'from-amber-500 to-orange-600'
   },
   {
@@ -107,17 +107,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Apsara (អប្សរា) • Drama Series AI',
     nameKhmer: 'អប្សរា',
     gender: 'female',
-    style: 'Drama Series / Emotional Female (+2Hz, +15%)',
+    style: 'Drama Series / Emotional Female (+2Hz, +5%)',
     azureVoiceName: 'km-KH-SreymomNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-SreymomNeural',
-    voxcpm2Prompt: 'Clear Cambodian female AI voice for drama series and emotional dialogue (+2Hz, +15%)',
-    description: 'Emotional, expressive Cambodian female voice crafted for drama series dialogue and character scenes.',
+    voxcpm2Prompt: 'Clear Cambodian female AI voice for drama series and emotional dialogue (+2Hz, +5%)',
+    description: 'Emotional, expressive Cambodian female voice crafted for drama series dialogue (+2Hz, +5%).',
     sampleAudioText: 'នៅក្រោមពន្លឺចន្ទពេញបូណ៌មី សំឡេងទឹកហូរហាក់ដូចជាកំពុងខ្សឹបប្រាប់រឿងរ៉ាវអាថ៌កំបាំងពីបុរាណ។',
     pitch: 1.02,
-    rate: 1.15,
+    rate: 1.05,
     pitchOffsetHz: 2,
-    rateOffsetPercent: 15,
-    characterArchetype: 'Drama Heroine (+2Hz, +15%)',
+    rateOffsetPercent: 5,
+    characterArchetype: 'Drama Heroine (+2Hz, +5%)',
     avatarColor: 'from-fuchsia-600 to-rose-700'
   },
   {
@@ -125,17 +125,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Borey (បុរី) • Elder Master / Monk',
     nameKhmer: 'បុរី',
     gender: 'male',
-    style: 'Calm Elder Master / Monk (-6Hz, -5%)',
+    style: 'Calm Elder Master / Monk (-4Hz, +0%)',
     azureVoiceName: 'km-KH-PisethNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-PisethNeural',
-    voxcpm2Prompt: 'Calm, aged wisdom with gravelly measured cadence for martial arts masters (-6Hz, -5%)',
-    description: 'Wise, measured elderly master voice tuned by lowering pitch with steady cadence for martial grandmasters.',
+    voxcpm2Prompt: 'Calm, aged wisdom with gravelly measured cadence for martial arts masters (-4Hz, +0%)',
+    description: 'Wise, measured elderly master voice tuned by lowering pitch with steady cadence for martial grandmasters (-4Hz, +0%).',
     sampleAudioText: 'ចូរចងចាំ វិជ្ជាគុនមិនមែនសម្រាប់សម្លាប់មនុស្សទេ តែសម្រាប់ការពារយុត្តិធម៌។',
-    pitch: 0.92,
-    rate: 0.95,
-    pitchOffsetHz: -6,
-    rateOffsetPercent: -5,
-    characterArchetype: 'Elder Master / Monk (-6Hz, -5%)',
+    pitch: 0.94,
+    rate: 1.00,
+    pitchOffsetHz: -4,
+    rateOffsetPercent: 0,
+    characterArchetype: 'Elder Master / Monk (-4Hz, +0%)',
     avatarColor: 'from-indigo-600 to-purple-800'
   },
   {
@@ -143,17 +143,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Kolab (កុលាប) • Gentle Heroine',
     nameKhmer: 'កុលាប',
     gender: 'female',
-    style: 'Gentle Storyteller / Royal Lady (+2Hz, +10%)',
+    style: 'Gentle Storyteller / Royal Lady (+2Hz, +5%)',
     azureVoiceName: 'km-KH-SreymomNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-SreymomNeural',
-    voxcpm2Prompt: 'Gentle Cambodian female storyteller with warm emotional cadence (+2Hz, +10%)',
-    description: 'Warm and gentle feminine voice designed for narration, princesses, and romantic movie scenes.',
+    voxcpm2Prompt: 'Gentle Cambodian female storyteller with warm emotional cadence (+2Hz, +5%)',
+    description: 'Warm and gentle feminine voice designed for narration, princesses, and romantic movie scenes (+2Hz, +5%).',
     sampleAudioText: 'ខ្ញុំជឿជាក់លើបង ទោះបីជាពិភពលោកទាំងមូលប្រឆាំងនឹងយើងក៏ដោយ។',
     pitch: 1.02,
-    rate: 1.10,
+    rate: 1.05,
     pitchOffsetHz: 2,
-    rateOffsetPercent: 10,
-    characterArchetype: 'Gentle Heroine / Royal Lady (+2Hz, +10%)',
+    rateOffsetPercent: 5,
+    characterArchetype: 'Gentle Heroine / Royal Lady (+2Hz, +5%)',
     avatarColor: 'from-emerald-600 to-teal-700'
   },
   {
@@ -161,17 +161,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Kiri (គិរី) • Evil Warlord / General',
     nameKhmer: 'គិរី',
     gender: 'male',
-    style: 'Dark Villain / Evil Warlord (-14Hz, +15%)',
+    style: 'Dark Villain / Evil Warlord (-8Hz, +5%)',
     azureVoiceName: 'km-KH-PisethNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-PisethNeural',
-    voxcpm2Prompt: 'Menacing dark warlord with deep grave baritone and aggressive delivery (-14Hz, +15%)',
-    description: 'Grave, menacing baritone tuned with deep pitch offset (-14Hz) for movie antagonists, generals, and dark villains.',
+    voxcpm2Prompt: 'Menacing dark warlord with deep grave baritone and authoritative delivery (-8Hz, +5%)',
+    description: 'Grave baritone tuned with deep pitch offset (-8Hz, +5%) for movie antagonists and dark villains.',
     sampleAudioText: 'គិតថាឯងអាចរារាំងកងទ័ពរបស់អញបានឬ? ឆោតល្ងង់ណាស់!',
-    pitch: 0.88,
-    rate: 1.15,
-    pitchOffsetHz: -14,
-    rateOffsetPercent: 15,
-    characterArchetype: 'Dark Villain / Warlord (-14Hz, +15%)',
+    pitch: 0.92,
+    rate: 1.05,
+    pitchOffsetHz: -8,
+    rateOffsetPercent: 5,
+    characterArchetype: 'Dark Villain / Warlord (-8Hz, +5%)',
     avatarColor: 'from-red-700 to-stone-800'
   },
   {
@@ -179,17 +179,17 @@ export const KHMER_VOICES: KhmerVoice[] = [
     name: 'Dara (ដារា) • Young Hero / Scout',
     nameKhmer: 'ដារា',
     gender: 'male',
-    style: 'Youthful Protagonist / Fast Scout (+4Hz, +25%)',
+    style: 'Youthful Protagonist / Fast Scout (+3Hz, +8%)',
     azureVoiceName: 'km-KH-PisethNeural',
     voxcpm2ModelTag: 'Microsoft Edge Neural • km-KH-PisethNeural',
-    voxcpm2Prompt: 'Bright energetic youthful male hero with crisp fast delivery (+4Hz, +25%)',
-    description: 'Energetic youthful protagonist voice with bright pitch (+4Hz) and agile tempo (+25%) for young fighters and scouts.',
+    voxcpm2Prompt: 'Bright energetic youthful male hero with crisp articulate delivery (+3Hz, +8%)',
+    description: 'Energetic youthful protagonist voice with bright pitch (+3Hz) and agile tempo (+8%) for young fighters and scouts.',
     sampleAudioText: 'យើងត្រូវតែការពារទីក្រុងនេះឱ្យបាន មិនអាចឱ្យសត្រូវឆ្លងកាត់បានឡើយ!',
-    pitch: 1.04,
-    rate: 1.25,
-    pitchOffsetHz: 4,
-    rateOffsetPercent: 25,
-    characterArchetype: 'Young Hero / Scout (+4Hz, +25%)',
+    pitch: 1.03,
+    rate: 1.08,
+    pitchOffsetHz: 3,
+    rateOffsetPercent: 8,
+    characterArchetype: 'Young Hero / Scout (+3Hz, +8%)',
     avatarColor: 'from-cyan-600 to-blue-700'
   }
 ];
@@ -358,6 +358,40 @@ export function encodePcmToWavBuffer(samples: Float32Array, sampleRate: number =
   return buffer;
 }
 
+export interface SegmentTtsDebugInfo {
+  engine: string;
+  isFallback: boolean;
+  latencyMs: number;
+  failed: boolean;
+  error?: string;
+  timestamp: number;
+}
+
+class ConcurrencyLimiter {
+  private active = 0;
+  private queue: Array<() => void> = [];
+
+  constructor(private readonly limit: number = 2) {}
+
+  async run<T>(fn: () => Promise<T>): Promise<T> {
+    if (this.active >= this.limit) {
+      await new Promise<void>(resolve => this.queue.push(resolve));
+    }
+    this.active++;
+    try {
+      return await fn();
+    } finally {
+      this.active--;
+      if (this.queue.length > 0) {
+        const next = this.queue.shift();
+        if (next) next();
+      }
+    }
+  }
+}
+
+export const ttsConcurrencyLimiter = new ConcurrencyLimiter(2);
+
 class AudioSynthesizer {
   private ctx: AudioContext | null = null;
   private currentAudio: HTMLAudioElement | null = null;
@@ -368,9 +402,38 @@ class AudioSynthesizer {
   private masterSpeed: number = 1.0;
   private rawAudioCache = new Map<string, ArrayBuffer>();
   private decodedAudioCache = new Map<string, AudioBuffer>();
+  public segmentTtsDebug = new Map<string, SegmentTtsDebugInfo>();
+  private statusListeners: Array<() => void> = [];
   private playbackGeneration: number = 0;
   private isCurrentlySpeaking: boolean = false;
   private sequenceAborted: boolean = false;
+
+  public getDebugInfo(segmentId?: string, cacheKey?: string): SegmentTtsDebugInfo | undefined {
+    if (segmentId && this.segmentTtsDebug.has(segmentId)) {
+      return this.segmentTtsDebug.get(segmentId);
+    }
+    if (cacheKey && this.segmentTtsDebug.has(cacheKey)) {
+      return this.segmentTtsDebug.get(cacheKey);
+    }
+    return undefined;
+  }
+
+  private setDebugInfo(segmentId: string | undefined, cacheKey: string, info: SegmentTtsDebugInfo): void {
+    if (segmentId) {
+      this.segmentTtsDebug.set(segmentId, info);
+    }
+    this.segmentTtsDebug.set(cacheKey, info);
+    for (const listener of this.statusListeners) {
+      try { listener(); } catch {}
+    }
+  }
+
+  public subscribeDebug(listener: () => void): () => void {
+    this.statusListeners.push(listener);
+    return () => {
+      this.statusListeners = this.statusListeners.filter(l => l !== listener);
+    };
+  }
 
   public isSpeaking(): boolean {
     return this.isCurrentlySpeaking;
@@ -439,33 +502,30 @@ class AudioSynthesizer {
 
   /**
    * Preloads Khmer TTS audio streams into memory and pre-decodes them for segments
-   * so playback during video dubbing is instantaneous (0ms latency, zero video lip desync).
+   * using a client-side concurrency limiter (max 2 concurrent requests) so servers are not flooded.
    */
   public async preloadSegments(
-    segments: Array<{ khmerText: string; speakerVoiceId: string; speedRatio?: number }>,
+    segments: Array<{ id?: string; khmerText: string; speakerVoiceId: string; speedRatio?: number }>,
     defaultSpeed: number = 1.0
   ): Promise<void> {
     if (!Array.isArray(segments) || segments.length === 0) return;
-    const ctx = this.unlockAudio();
+    this.unlockAudio();
 
-    // Process all segments so that each line is preloaded and pre-decoded
-    for (let i = 0; i < segments.length; i += 3) {
-      const batch = segments.slice(i, i + 3);
-      await Promise.all(
-        batch.map(async seg => {
-          await this.getAudioBufferForSegment(seg, defaultSpeed);
-        })
-      );
-    }
+    // Process segments via ConcurrencyLimiter (max 2 requests in flight simultaneously)
+    await Promise.all(
+      segments.map(seg => this.getAudioBufferForSegment(seg, defaultSpeed))
+    );
   }
 
   /**
    * Retrieves or synthesizes the decoded AudioBuffer for a specific segment.
    * Cached both in raw binary form and decoded AudioBuffer form for zero latency.
+   * Captures per-segment TTS engine, latency, and error status for the debug panel.
    */
   public async getAudioBufferForSegment(
-    seg: { khmerText: string; speakerVoiceId: string; speedRatio?: number },
-    defaultSpeed: number = 1.0
+    seg: { id?: string; khmerText: string; speakerVoiceId: string; speedRatio?: number },
+    defaultSpeed: number = 1.0,
+    forceRetry: boolean = false
   ): Promise<AudioBuffer | null> {
     const text = (seg.khmerText || '').trim();
     if (!text) return null;
@@ -473,6 +533,12 @@ class AudioSynthesizer {
     const voiceId = seg.speakerVoiceId || 'piseth';
     const speed = Math.min(2.0, Math.max(0.5, Number((seg.speedRatio || defaultSpeed || this.masterSpeed).toFixed(2))));
     const cacheKey = `${voiceId}:${speed}:${text}`;
+
+    if (forceRetry) {
+      this.decodedAudioCache.delete(cacheKey);
+      this.rawAudioCache.delete(cacheKey);
+      if (seg.id) this.segmentTtsDebug.delete(seg.id);
+    }
 
     if (this.decodedAudioCache.has(cacheKey)) {
       return this.decodedAudioCache.get(cacheKey)!;
@@ -491,17 +557,55 @@ class AudioSynthesizer {
         customRatePct
       );
 
+      const t0 = performance.now();
       try {
-        const res = await fetch(url);
+        const res = await ttsConcurrencyLimiter.run(async () => {
+          return await fetch(url);
+        });
+        const elapsed = Math.round(performance.now() - t0);
+
         if (res.ok) {
           const fetched = await res.arrayBuffer();
           if (fetched && fetched.byteLength > 100) {
             rawBuf = fetched;
             this.rawAudioCache.set(cacheKey, fetched);
+            const engineHdr = res.headers.get('X-TTS-Engine') || 'Microsoft-Edge-Neural';
+            const isFallback = res.headers.get('X-TTS-Fallback') === 'true' || engineHdr.includes('Backup') || engineHdr.includes('gemini-tts');
+            this.setDebugInfo(seg.id, cacheKey, {
+              engine: engineHdr,
+              isFallback,
+              latencyMs: elapsed,
+              failed: false,
+              timestamp: Date.now()
+            });
           }
+        } else {
+          let errText = `HTTP ${res.status}`;
+          try {
+            const errData = await res.json();
+            if (errData?.error) errText = errData.error;
+          } catch {}
+          console.warn(`[TTS Client Warning] Segment TTS returned ${res.status}:`, errText);
+          this.setDebugInfo(seg.id, cacheKey, {
+            engine: 'Unavailable',
+            isFallback: false,
+            latencyMs: elapsed,
+            failed: true,
+            error: errText,
+            timestamp: Date.now()
+          });
         }
-      } catch (e) {
-        console.warn('Preload fetch notice:', e);
+      } catch (e: any) {
+        const elapsed = Math.round(performance.now() - t0);
+        console.error('[TTS Client Network Error]', e?.message || e);
+        this.setDebugInfo(seg.id, cacheKey, {
+          engine: 'Network Error',
+          isFallback: false,
+          latencyMs: elapsed,
+          failed: true,
+          error: e?.message || 'Network request failed',
+          timestamp: Date.now()
+        });
       }
     }
 
@@ -510,8 +614,8 @@ class AudioSynthesizer {
         const decoded = await ctx.decodeAudioData(rawBuf.slice(0));
         this.decodedAudioCache.set(cacheKey, decoded);
         return decoded;
-      } catch (err) {
-        console.warn('Preload decode notice:', err);
+      } catch (err: any) {
+        console.error('[Web Audio Decode Error]', err?.message || err);
       }
     }
     return null;
